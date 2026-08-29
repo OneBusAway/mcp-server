@@ -1,0 +1,58 @@
+services:
+
+  # ── oba-mcp MCP server (HTTP transport) ─────────────────────────────────────
+  oba-mcp:
+    build: ./mcp
+    ports:
+      - "${OBA_MCP_PORT:-8080}:8080"
+    environment:
+      OBA_BASE_URL:  ${OBA_BASE_URL:-http://maglev:4000}
+      OBA_API_KEY:   ${OBA_API_KEY:-test}
+      OBA_TRANSPORT: http
+      OBA_PORT:      "8080"
+      OBA_LOG:       /var/log/oba-mcp/oba-mcp.log
+      OBA_CACHE:     /var/cache/oba-mcp/cache.db
+      OBA_LOG_JSON:  ${OBA_LOG_JSON:-0}
+    volumes:
+      - oba-cache:/var/cache/oba-mcp
+      - oba-logs:/var/log/oba-mcp
+    restart: unless-stopped
+    depends_on:
+      maglev:
+        condition: service_healthy
+        required: false
+
+  # ── onebusaway-mcp-ui (SvelteKit web chat UI) ────────────────────────────────
+  oba-mcp-ui:
+    build: ./ui
+    ports:
+      - "${OBA_UI_PORT:-3000}:3000"
+    environment:
+      # URL the browser uses to reach the MCP server.
+      # If oba-mcp is behind a reverse proxy, set this to the public URL.
+      PUBLIC_MCP_URL: ${PUBLIC_MCP_URL:-http://localhost:8080}
+    restart: unless-stopped
+    depends_on:
+      - oba-mcp
+
+  # ── maglev (OneBusAway-compatible backend) ───────────────────────────────────
+  # Replace the image/config below with your actual maglev setup.
+  # If maglev runs outside Docker set OBA_BASE_URL=http://host.docker.internal:4000
+  # and remove (or comment out) this service.
+  maglev:
+    image: ghcr.io/onebusaway/maglev:latest   # pin to a specific tag in production
+    ports:
+      - "4000:4000"
+    environment:
+      MAGLEV_PORT: "4000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:4000/api/where/agencies-with-coverage.json?key=test"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  oba-cache:
+  oba-logs:

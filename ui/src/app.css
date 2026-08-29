@@ -1,0 +1,56 @@
+@import 'tailwindcss';
+@import 'maplibre-gl/dist/maplibre-gl.css';
+
+@custom-variant dark (html.dark &);
+
+@theme {
+	--color-oba-50:  #e8f5e9;
+	--color-oba-100: #c8e6c9;
+	--color-oba-200: #a5d6a7;
+	--color-oba-300: #81c784;
+	--color-oba-400: #66bb6a;
+	--color-oba-500: #4caf50;
+	--color-oba-600: #43a047;
+	--color-oba-700: #388e3c;
+	--color-oba-800: #2e7d32;
+	--color-oba-900: #1b5e20;
+}
+
+html            { color-scheme: light; }
+html.dark       { color-scheme: dark; }
+body            { background-color: #ffffff; }
+html.dark body  { background-color: #0a0a0a; }
+
+::-webkit-scrollbar        { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb  { background-color: rgb(161 161 170 / 0.4); border-radius: 9999px; }
+::-webkit-scrollbar-track  { background: transparent; }
+
+/* Bus loader animations — global so they work from both class and inline style */
+@keyframes oba-bus-slide {
+	0%   { transform: translateX(-60px); }
+	35%  { transform: translateX(70px); }
+	65%  { transform: translateX(70px); }
+	100% { transform: translateX(200px); }
+}
+@keyframes oba-road-scroll {
+	from { transform: translateX(0); }
+	to   { transform: translateX(-28px); }
+}
+@keyframes oba-vehicle-pulse {
+	0%   { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.55); }
+	70%  { box-shadow: 0 0 0 8px rgba(255, 255, 255, 0); }
+	100% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0); }
+}
+
+.oba-current-stop-marker {
+	animation: oba-current-stop-pulse 1.8s ease-out infinite;
+}
+@keyframes oba-current-stop-pulse {
+	0%   { box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.35), 0 2px 8px rgba(0, 0, 0, 0.45); }
+	70%  { box-shadow: 0 0 0 11px rgba(37, 99, 235, 0), 0 2px 8px rgba(0, 0, 0, 0.45); }
+	100% { box-shadow: 0 0 0 3px rgba(37, 99, 235, 0), 0 2px 8px rgba(0, 0, 0, 0.45); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.oba-current-stop-marker { animation: none; }
+}

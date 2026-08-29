@@ -1,0 +1,26 @@
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  cmd = "go build -o ./tmp/oba-mcp ."
+  bin = "./tmp/oba-mcp"
+  include_ext = ["go"]
+  exclude_dir = ["tmp"]
+  delay = 500
+  kill_delay = 200
+  # stdio server exits immediately with no client — that is correct
+  rerun = false
+  log = "tmp/air.log"
+
+[log]
+  time = true
+  main_only = false
+
+[color]
+  build = "yellow"
+  runner = "green"
+  watcher = "cyan"
+  main = "magenta"
+
+[misc]
+  clean_on_exit = true

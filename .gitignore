@@ -1,0 +1,23 @@
+# Dependencies and generated UI output
+ui/node_modules/
+ui/build/
+ui/.svelte-kit/
+
+# Generated MCP binary and local runtime data
+mcp/oba-mcp
+*.db
+*.db-shm
+*.db-wal
+*.log
+
+# Local configuration and editor/OS files
+.env
+.env.*
+!.env.example
+.DS_Store
+.idea/
+.vscode/
+
+# Developer-local agent configuration
+opencode.json
+mcp/opencode.json

@@ -1,0 +1,9 @@
+version: "2"
+sql:
+  - engine: "sqlite"
+    queries: "cachedb/query.sql"
+    schema: "cachedb/schema.sql"
+    gen:
+      go:
+        package: "cachedb"
+        out: "cachedb"
