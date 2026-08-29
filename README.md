@@ -59,6 +59,14 @@ This starts:
 
 Set `OBA_BASE_URL` and `OBA_API_KEY` to point at your OBA backend. See each package's README for the full list of options.
 
+## Production baseline
+
+The default is trusted local stdio. The current HTTP mode is for local development
+only and must not be exposed publicly until the production hardening phases are
+complete. Deployment modes, tool profiles, compatibility rules, and initial
+service-level objectives are documented in [the Phase 0 production
+baseline](./docs/production/phase-0-baseline.md).
+
 ## Docker Compose
 
 The root `docker-compose.yml` wires all three services together. To deploy only the MCP server:
