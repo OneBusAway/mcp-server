@@ -26,10 +26,6 @@ COPY --from=builder /app/oba-mcp .
 # Logs land here inside the container; mount a volume to persist them.
 RUN mkdir -p /var/log/oba-mcp
 
-ENV OBA_TRANSPORT=http
-ENV OBA_PORT=8080
-ENV OBA_BASE_URL=http://maglev:4000
-ENV OBA_API_KEY=test
 ENV OBA_LOG=/var/log/oba-mcp/oba-mcp.log
 ENV OBA_CACHE=/var/cache/oba-mcp/cache.db
 

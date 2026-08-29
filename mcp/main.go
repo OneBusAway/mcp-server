@@ -1,11 +1,14 @@
 package main
 
 import (
-	"fmt"
+	"errors"
 	"io"
 	"log"
+	"net"
+	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 
 	"oba-mcp/cachedb"
 	"oba-mcp/client"
@@ -18,7 +21,10 @@ import (
 
 func main() {
 	baseURL := envOrDefault("OBA_BASE_URL", "http://localhost:4000")
-	apiKey := envOrDefault("OBA_API_KEY", "test")
+	apiKey := os.Getenv("OBA_API_KEY")
+	if apiKey == "" {
+		log.Fatal("OBA_API_KEY must be set")
+	}
 
 	// stdout is reserved for MCP JSON-RPC in stdio mode.
 	// Logs go to OBA_LOG (default /tmp/oba-mcp.log) with automatic rotation.
@@ -62,25 +68,51 @@ func main() {
 
 	transport := envOrDefault("OBA_TRANSPORT", "stdio")
 	if transport == "http" {
-		port := envOrDefault("OBA_PORT", "8080")
-		addr := fmt.Sprintf(":%s", port)
-		appLogger.Printf(`{"event":"http","addr":%q}`, addr)
-		httpServer := server.NewStreamableHTTPServer(s,
-			server.WithStreamableHTTPCORS(
-				server.WithCORSAllowedOrigins("*"),
-			),
-			server.WithDisableLocalhostProtection(true),
-		)
-		if err := httpServer.Start(addr); err != nil {
+		if err := serveHTTP(s, appLogger); err != nil {
 			log.Fatal(err)
 		}
-	} else {
+	} else if transport == "stdio" {
 		if err := server.ServeStdio(s); err != nil {
 			log.Fatal(err)
 		}
+	} else {
+		log.Fatalf("unsupported OBA_TRANSPORT %q (expected stdio or http)", transport)
 	}
 
 	appLogger.Printf(`{"event":"stop"}`)
+}
+
+func serveHTTP(mcpServer *server.MCPServer, appLogger *log.Logger) error {
+	token := os.Getenv("OBA_HTTP_AUTH_TOKEN")
+	if token == "" {
+		return errors.New("OBA_HTTP_AUTH_TOKEN must be set when OBA_TRANSPORT=http")
+	}
+	origins, err := parseAllowedOrigins(os.Getenv("OBA_ALLOWED_ORIGINS"))
+	if err != nil {
+		return err
+	}
+
+	addr := net.JoinHostPort(envOrDefault("OBA_HTTP_BIND_ADDR", "127.0.0.1"), envOrDefault("OBA_PORT", "8080"))
+	mcpHTTPServer := server.NewStreamableHTTPServer(mcpServer,
+		server.WithStreamableHTTPCORS(
+			server.WithCORSAllowedOrigins(origins...),
+			server.WithCORSAllowedMethods(http.MethodGet, http.MethodPost, http.MethodDelete, http.MethodOptions),
+			server.WithCORSAllowedHeaders("Content-Type", "Mcp-Session-Id", "Last-Event-ID", "Authorization"),
+			server.WithCORSExposedHeaders("Mcp-Session-Id"),
+			server.WithCORSMaxAge(600),
+		),
+	)
+	mux := http.NewServeMux()
+	mux.Handle("/mcp", protectedHTTPHandler(mcpHTTPServer, origins, token))
+	httpServer := &http.Server{
+		Addr:              addr,
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    16 << 10,
+	}
+	appLogger.Printf(`{"event":"http","addr":%q}`, addr)
+	return httpServer.ListenAndServe()
 }
 
 func defaultCachePath() string {

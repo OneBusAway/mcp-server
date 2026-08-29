@@ -4,12 +4,17 @@ services:
   oba-mcp:
     build: ./mcp
     ports:
-      - "${OBA_MCP_PORT:-8080}:8080"
+      # Local development only. Public deployments must use a TLS/auth gateway
+      # and must not publish the MCP container directly.
+      - "127.0.0.1:${OBA_MCP_PORT:-8080}:8080"
     environment:
       OBA_BASE_URL:  ${OBA_BASE_URL:-http://maglev:4000}
-      OBA_API_KEY:   ${OBA_API_KEY:-test}
+      OBA_API_KEY:   ${OBA_API_KEY:?OBA_API_KEY is required}
       OBA_TRANSPORT: http
       OBA_PORT:      "8080"
+      OBA_HTTP_BIND_ADDR: 0.0.0.0
+      OBA_HTTP_AUTH_TOKEN: ${OBA_HTTP_AUTH_TOKEN:?OBA_HTTP_AUTH_TOKEN is required}
+      OBA_ALLOWED_ORIGINS: ${OBA_ALLOWED_ORIGINS:-http://localhost:3000}
       OBA_LOG:       /var/log/oba-mcp/oba-mcp.log
       OBA_CACHE:     /var/cache/oba-mcp/cache.db
       OBA_LOG_JSON:  ${OBA_LOG_JSON:-0}
@@ -25,6 +30,7 @@ services:
   # ── onebusaway-mcp-ui (SvelteKit web chat UI) ────────────────────────────────
   oba-mcp-ui:
     build: ./ui
+    profiles: ["ui"]
     ports:
       - "${OBA_UI_PORT:-3000}:3000"
     environment:
@@ -41,8 +47,6 @@ services:
   # and remove (or comment out) this service.
   maglev:
     image: ghcr.io/onebusaway/maglev:latest   # pin to a specific tag in production
-    ports:
-      - "4000:4000"
     environment:
       MAGLEV_PORT: "4000"
     restart: unless-stopped

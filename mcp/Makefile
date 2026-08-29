@@ -50,7 +50,7 @@ mcp-add-log: build
 		-e OBA_API_KEY=$(OBA_API_KEY) \
 		-e OBA_LOG=/tmp/oba-mcp.log
 
-## serve-http: run in HTTP mode (for the ui)
+## serve-http: run HTTP mode on loopback (requires OBA_HTTP_AUTH_TOKEN)
 serve-http: build
 	OBA_BASE_URL=$(OBA_BASE_URL) OBA_API_KEY=$(OBA_API_KEY) OBA_TRANSPORT=http OBA_PORT=$(OBA_PORT) ./$(BINARY)
 

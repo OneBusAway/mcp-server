@@ -46,8 +46,10 @@ docker compose up -d
 
 This starts:
 - `oba-mcp` on port 8080 (MCP HTTP server)
-- `oba-mcp-ui` on port 3000 (web UI)
-- `maglev` on port 4000 (OBA API backend — configure or replace as needed)
+- `maglev` on the internal Compose network (OBA API backend — configure or replace as needed)
+
+The optional web UI is kept out of the default deployment. Start it explicitly
+with `docker compose --profile ui up -d` after configuring a secure HTTP gateway.
 
 ## Requirements
 

@@ -13,8 +13,8 @@ LLM (Claude, etc.)  ←MCP→  oba-mcp  ←HTTP→  maglev (OBA API)  ←GTFS/GT
 make build
 make mcp-add          # registers with Claude Code, all projects
 
-# Local (HTTP mode — for the transit-ui or any HTTP MCP client)
-make serve-http       # runs on :8080
+# Local HTTP mode — requires a bearer token, for development only
+OBA_API_KEY=test OBA_HTTP_AUTH_TOKEN=local-dev-token make serve-http
 
 # Docker
 docker compose up -d
@@ -30,9 +30,12 @@ docker compose up -d
 | Env var | Default | Description |
 |---|---|---|
 | `OBA_BASE_URL` | `http://localhost:4000` | OBA-compatible API URL |
-| `OBA_API_KEY` | `test` | OBA API key |
+| `OBA_API_KEY` | required | OBA API key; inject it from a deployment secret |
 | `OBA_TRANSPORT` | `stdio` | `stdio` (MCP clients) or `http` (web/HTTP clients) |
 | `OBA_PORT` | `8080` | Port for HTTP mode |
+| `OBA_HTTP_BIND_ADDR` | `127.0.0.1` | HTTP listener address; use a private network address for a gateway deployment |
+| `OBA_HTTP_AUTH_TOKEN` | required in HTTP mode | Secret shared only by the MCP server and its authentication gateway |
+| `OBA_ALLOWED_ORIGINS` | none | Comma-separated exact browser origins; all other browser origins receive `403` |
 | `OBA_LOG` | `/tmp/oba-mcp.log` | Log file path (rotated automatically) |
 | `OBA_LOG_JSON` | `0` | Set to `1` for raw JSON logs (default: human-readable) |
 | `OBA_CACHE` | `~/.cache/oba-mcp/cache.db` | SQLite persistent cache |
@@ -66,7 +69,7 @@ OBA_LOG_JSON=1 ./oba-mcp
 
 ## Docker
 
-The Docker image runs oba-mcp in HTTP mode. Edit `docker-compose.yml` to point `OBA_BASE_URL` at your maglev instance.
+The Docker image requires explicit HTTP configuration and contains no API-key default. The Compose file binds MCP to loopback for local development and does not publish Maglev.
 
 ```sh
 # Start
@@ -107,9 +110,23 @@ Or configure manually:
 **HTTP mode** (transit-ui or other HTTP MCP clients):
 ```json
 {
-  "url": "http://localhost:8080/mcp"
+  "url": "http://localhost:8080/mcp",
+  "headers": { "Authorization": "Bearer local-dev-token" }
 }
 ```
+
+## Public HTTP deployment
+
+Do not expose the MCP container or Maglev directly to the internet. Put a TLS
+and authentication gateway in front of the MCP server. The gateway must
+authenticate and authorize each caller, apply caller/IP rate limits, generate a
+request ID, and proxy only to the private MCP listener. It must strip any
+client-supplied `Authorization` header and add `Authorization: Bearer
+$OBA_HTTP_AUTH_TOKEN` only on the private upstream connection. When proxying to
+a loopback listener, rewrite `Host` to `localhost` so the MCP library's DNS
+rebinding protection remains enabled. Keep `OBA_HTTP_AUTH_TOKEN` and
+`OBA_API_KEY` in the deployment secret manager; never put either in Compose,
+source control, browser storage, or tool output.
 
 ## Tools (29 total)
 
