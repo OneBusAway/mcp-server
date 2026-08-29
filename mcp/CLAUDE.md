@@ -1,214 +1,206 @@
-# CLAUDE.md — onebusaway-mcp
+# CLAUDE.md — OneBusAway MCP
 
-MCP server wrapping the OneBusAway REST API. Exposes real-time transit data as tools for LLMs. Runs as a stdio subprocess or HTTP server.
+Before making changes, read and follow [AGENTS.md](AGENTS.md). It is the
+canonical engineering guide for this MCP; this file is Claude Code context,
+not a duplicate rulebook.
 
-```
-LLM  ←MCP→  oba-mcp  ←HTTP+cache→  maglev (OBA API)  ←GTFS/GTFS-RT
-                ↑
-   ../ui  (optional SvelteKit web UI)
-```
+`oba-mcp` is a Go MCP server that exposes real-time and scheduled OneBusAway
+transit data to LLMs. It runs as either a stdio subprocess or an HTTP service.
 
-This package lives at `mcp/` inside the monorepo. The companion web UI is at `../ui/` — see its [README](../ui/README.md) and [CLAUDE.md](../ui/CLAUDE.md) if one exists.
-
-## Project Layout
-
-```
-mcp/                         # ← you are here
-  main.go              # entry point: env, logging, cache, server wiring
-  client/oba.go        # HTTP client, 2-level cache (memory + SQLite), circuit breaker
-  logger/pretty.go     # human-readable log formatter (pretty default, JSON with OBA_LOG_JSON=1)
-  cachedb/             # sqlc-generated SQLite layer — never edit db.go, models.go, query.sql.go
-  tools/
-    register.go        # Handler struct + RegisterAll()
-    agencies.go        # get_agencies, get_agency
-    arrivals.go        # get_arrivals_for_stop, get_arrival_and_departure_for_stop, get_arrivals_for_location
-    overview.go        # get_stop_overview (composite: stop + arrivals in one call)
-    routes.go          # get_route, search_routes, get_routes_for_agency, …
-    stops.go           # get_stop, search_stops, find_stops_near_location, …
-    system.go          # get_current_time, get_metadata
-    trips.go           # get_trip, get_trip_details, get_trip_for_vehicle, …
-    prompts.go         # MCP prompts: transit_assistant, next_bus, explore_agency
-
-../ui/        # companion SvelteKit web chat UI
-  src/
-    lib/
-      mcp.js           # MCP HTTP client (callTool, listTools)
-      chat.svelte.js   # global chat store
-      settings.svelte.js
-      components/      # ArrivalsPanel, MapCard, ArrivalRow, …
-    routes/
-      chat/+page.svelte
-      api/chat/+server.js  # SSE bridge: UI ↔ MCP ↔ AI provider
+```text
+LLM ←MCP→ oba-mcp ←HTTP/cache→ Maglev or another OBA-compatible API ←GTFS/GTFS-RT
+                     ↑
+               ../ui (optional SvelteKit UI)
 ```
 
-## Development Commands
+The MCP is deployable without the UI. This directory is `mcp/`; the companion
+UI is `../ui/`.
+
+## Layout
+
+```text
+main.go                 entry point, configuration, logging, transport wiring
+client/
+  oba.go                HTTP client, cache, circuit breaker, time helpers
+  api_dtos.go           typed OBA API DTOs and endpoint methods
+tools/
+  register.go           shared handler and tool registration
+  input.go              shared MCP argument parsing and validation boundary
+  responses.go          named MCP-facing response contracts
+  agencies.go …         domain tool handlers
+  prompts.go            MCP prompts and transit-domain guidance
+validation/             shared argument validation
+cachedb/                sqlc-generated SQLite cache layer
+```
+
+Do not manually edit generated files in `cachedb/`.
+
+## Development
+
+Run commands from `mcp/`:
 
 ```sh
 make build        # compile ./oba-mcp
-make run          # build + run (stdio)
-make serve-http   # run in HTTP mode (:8080)
-make watch        # Air live-reload
-make mcp-add      # rebuild + register with Claude Code (user scope)
-make logs         # tail -f /tmp/oba-mcp.log
+make run          # build and run over stdio
+make serve-http   # run HTTP mode on the configured address
+make watch        # live reload with Air
+make mcp-add      # rebuild and register with Claude Code
+make logs         # tail /tmp/oba-mcp.log
 make fmt && make lint && make test
 ```
 
-After `make mcp-add`, start a new conversation to pick up the new binary.
+After `make mcp-add`, start a new Claude Code conversation to use the rebuilt
+server. In restricted environments, use a temporary Go cache, for example:
 
-## Environment Variables
+```sh
+GOCACHE=/tmp/oba-mcp-go-cache go test ./...
+GOCACHE=/tmp/oba-mcp-go-cache go vet ./...
+GOCACHE=/tmp/oba-mcp-go-cache go build ./...
+```
 
-| Var | Default | Notes |
+## Configuration
+
+| Variable | Default | Purpose |
 |---|---|---|
-| `OBA_BASE_URL` | `http://localhost:4000` | maglev URL |
-| `OBA_API_KEY` | `test` | OBA API key |
+| `OBA_BASE_URL` | `http://localhost:4000` | OBA-compatible API URL |
+| `OBA_API_KEY` | required | API key; inject from a secret manager |
 | `OBA_TRANSPORT` | `stdio` | `stdio` or `http` |
-| `OBA_PORT` | `8080` | port for HTTP mode |
-| `OBA_LOG` | `/tmp/oba-mcp.log` | log file (auto-rotated: 10MB, 3 files, 7 days) |
-| `OBA_LOG_JSON` | `0` | set `1` for raw JSON logs |
-| `OBA_CACHE` | `~/.cache/oba-mcp/cache.db` | SQLite cache |
+| `OBA_PORT` | `8080` | HTTP listener port |
+| `OBA_HTTP_BIND_ADDR` | `127.0.0.1` | HTTP listener address |
+| `OBA_HTTP_AUTH_TOKEN` | required in HTTP mode | private gateway-to-MCP bearer token |
+| `OBA_ALLOWED_ORIGINS` | none | exact allowed browser origins |
+| `OBA_LOG` | `/tmp/oba-mcp.log` | rotated log destination |
+| `OBA_LOG_JSON` | `0` | set to `1` for JSON logs |
+| `OBA_CACHE` | platform cache directory | SQLite static-data cache |
 
-## Adding a New Tool
+HTTP mode is for a private service behind an authenticated TLS gateway, not a
+public listener. Keep the API key and HTTP auth token out of source, logs, MCP
+results, and browser storage.
 
-**1. Register in the file's `registerXxxTools` function:**
+## Adding or changing a tool
 
-```go
-s.AddTool(
-    mcp.NewTool("get_thing",
-        mcp.WithDescription("One sentence: what it returns and when to prefer it over alternatives."),
-        mcp.WithString("thing_id", mcp.Required(), mcp.Description("Thing ID (e.g. 'unitrans_abc')")),
-        mcp.WithNumber("time", mcp.Description("Query at specific time (epoch ms, defaults to now)")),
-    ),
-    h.getThing,
-)
+1. Inspect a production-ready tool with similar behavior and its tests.
+2. Define or reuse a typed upstream OBA DTO.
+3. Define or reuse a named MCP-facing response type.
+4. Define the tool schema and a description that states what it returns and when to use it.
+5. Validate arguments through the shared validation layer.
+6. Call the context-aware client or service method.
+7. Keep URL construction and upstream HTTP behavior in the client layer.
+8. Transform the typed OBA DTO into the MCP-facing type.
+9. Return structured MCP content through the shared result and error contracts; text is supplementary.
+10. Register the tool in the appropriate registration function.
+11. Update real-time/cache classification when applicable.
+12. Add or update decoding, contract, and behavior tests.
+
+The intended data boundary is:
+
+```text
+OBA response → typed OBA DTO → explicit mapping → named MCP response → structured MCP result
 ```
 
-**2. Write the handler (follow this shape exactly):**
+Do not turn untrusted arguments into URL paths in handlers. Do not use dynamic
+maps or unchecked assertions for supported OBA responses. Do not create
+anonymous handler-local structs as public response contracts.
 
-```go
-func (h *Handler) getThing(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-    thingID, err := req.RequireString("thing_id")
-    if err != nil || thingID == "" {
-        return mcp.NewToolResultError("thing_id is required"), nil
-    }
+## OneBusAway response model
 
-    params := url.Values{}
-    if t := req.GetFloat("time", 0); t > 0 {
-        params.Set("time", fmt.Sprintf("%.0f", t))
-    }
-
-    resp, err := h.client.Get("/api/where/thing/"+thingID+".json", params)
-    if err != nil {
-        return mcp.NewToolResultError(err.Error()), nil
-    }
-    data, err := client.Data(resp)
-    if err != nil {
-        return mcp.NewToolResultError(err.Error()), nil
-    }
-
-    entry, _ := data["entry"].(map[string]any)
-    if entry == nil {
-        return mcp.NewToolResultText(fmt.Sprintf("No thing found with ID %q.", thingID)), nil
-    }
-
-    type result struct {
-        ID   string `json:"id"`
-        Name string `json:"name,omitempty"`
-    }
-    out, _ := json.MarshalIndent(result{
-        ID:   client.StrVal(entry["id"]),
-        Name: client.StrVal(entry["name"]),
-    }, "", "  ")
-    return mcp.NewToolResultText(fmt.Sprintf("Thing %s:\n%s", thingID, out)), nil
-}
-```
-
-**3.** Call `h.registerThingTools(s)` inside `RegisterAll` in `register.go`.
-
-**4.** If real-time data, add the path prefix to `realtimePrefixes` in `client/oba.go`.
-
-## OBA API
-
-### Response Envelope
+OBA commonly returns an envelope such as:
 
 ```json
-{ "code": 200, "data": { "entry": {…}, "list": […], "references": { "stops": […], "routes": […] } } }
-```
-
-`client.Data(resp)` validates `code==200` and returns the inner `data` map.
-
-Single resource → `data["entry"].(map[string]any)` | List → `client.AsSlice(data["list"])`
-
-### References Lookup
-
-Many endpoints put shared objects in `references` and only IDs in the payload:
-
-```go
-stopNames := map[string]string{}
-if refs, ok := data["references"].(map[string]any); ok {
-    for _, s := range client.AsSlice(refs["stops"]) {
-        stop, _ := s.(map[string]any)
-        stopNames[client.StrVal(stop["id"])] = client.StrVal(stop["name"])
-    }
+{
+  "code": 200,
+  "data": {
+    "entry": {},
+    "list": [],
+    "references": {}
+  }
 }
 ```
 
-### Arrivals — Key Fields
+Supported endpoints must decode this into named DTOs in `client/`, rather than
+parsing it dynamically. The primary payload often contains IDs while shared
+stops, routes, trips, and agencies appear under `references`; model those
+references in typed DTOs and explicitly transform only the needed values into
+the MCP-facing response.
 
-```
-predicted               bool    — true = real-time GPS data
-predictedArrivalTime    float64 — epoch ms (0 if unpredicted)
-scheduledArrivalTime    float64 — epoch ms (always present)
-scheduleDeviation       float64 — seconds late (+) or early (-)
-numberOfStopsAway       float64
-distanceFromStop        float64 — meters
-tripId / serviceDate    string / float64 — serviceDate = midnight epoch ms of the operating day
-```
+## Transit-domain notes
 
-### Timestamps
+### Arrivals
 
-OBA timestamps are Unix **milliseconds** (float64). Always format before returning:
+Useful upstream arrival fields include:
 
-```go
-client.FormatRelativeTime(ms, loc)              // "3:42 PM (in 8 min)"
-time.UnixMilli(int64(ms)).Format("3:04 PM")    // bare time
-time.UnixMilli(int64(ms)).Format("2006-01-02") // date
-
-// Timezone for an agency (cached after first call):
-loc := h.client.TimezoneFor(client.AgencyIDFromEntityID(stopID))
+```text
+predicted               true when real-time GPS data is used
+predictedArrivalTime    Unix milliseconds; zero when no prediction exists
+scheduledArrivalTime    Unix milliseconds
+scheduleDeviation       seconds late (+) or early (-)
+numberOfStopsAway       remaining stops when known
+distanceFromStop        metres
+tripId, routeId         transit identities
+serviceDate             midnight Unix milliseconds for the operating service day
 ```
 
-The `time=` parameter (epoch ms) lets the LLM query at any past/future time. The system prompt in `prompts.go` explains the computation.
+`serviceDate` is the transit operating day, which can differ from the calendar
+date around midnight. Respect the agency timezone for display and for strict
+schedule-date queries.
 
-## Go Style Rules
+### Timestamps and timezones
 
-- **Typed structs always** — never return `map[string]any` to the LLM; define a struct and marshal it.
-- **`omitempty` on zero-value fields** — initialize slices as `nil` (not `[]string{}`), or `omitempty` won't fire.
-- **Use client helpers** — `client.StrVal`, `client.FloatVal`, `client.AsSlice` — never type-assert directly (panics on nil).
-- **Cap list results** — arrivals=10, routes=30, stops=50, stop IDs=100, search=5, vehicles=50, trips=20, stops-near=20.
-- **Errors to LLM** — `return mcp.NewToolResultError(err.Error()), nil`. Never `return nil, err` (closes the MCP connection).
-- **No comments on obvious things** — only comment when the WHY is non-obvious.
+OBA timestamps are Unix **milliseconds**, not seconds. Use `time.UnixMilli`
+when producing a display value; `FormatRelativeTime` can produce text such as
+`3:42 PM (in 8 min)`.
 
-## Cache
+Those strings are display helpers only. MCP-facing responses should preserve
+machine-readable epoch milliseconds and applicable timezone information so a
+client or model never has to parse display text to recover a time.
 
-| TTL | Data | SQLite? |
-|---|---|---|
-| 30 sec | arrivals, trip-details, vehicles, current-time | No |
-| 60 min | agencies, routes, stops, shapes, schedules | Yes — cross-session |
+The OBA `time` parameter accepts epoch milliseconds for past or future
+queries. Agency data supplies the timezone; obtain it through the client when
+the endpoint does not already provide an applicable offset.
 
-## Logging
+### Limits, caching, and logs
 
-Auto-rotates: 10 MB → rotate, 3 files kept, 7-day expiry, gzip.
-Default: human-readable. `OBA_LOG_JSON=1` → raw JSON.
+Bound list output. Current tool limits include searches of 5; arrivals 10;
+routes 30; stops 50; nearby stops/routes 20; vehicles 50; trips 20; and stop
+IDs 100. Indicate truncation when a result is capped.
 
-```
-10:42:35 [MISS]  arrivals-and-departures-for-stop  ms=41  4.8KB
-10:42:35 [HIT]   stop
-10:42:40 [OPEN]  circuit breaker  failures=3
-```
+Static data such as agencies, routes, stops, shapes, and schedules is cached
+for 60 minutes and may persist in SQLite. Real-time arrivals, vehicle/trip
+status, and current time are cached for 30 seconds in memory only.
 
-## Tool Design
+Logs rotate at 10 MB, retain three compressed files for seven days, and are
+human-readable by default. Set `OBA_LOG_JSON=1` for log aggregation.
 
-- **Description = API docs** — model reads only name + description before choosing a tool. Say what it returns AND when to prefer it over alternatives.
-- **Mention alternatives explicitly** — "Use `get_stops_for_agency` if you also need names and locations."
-- **Response format** — human-readable header then JSON: `fmt.Sprintf("Arrivals at stop %s (%d shown):\n%s", stopID, len(results), out)`.
-- **Composite tools** — if model always calls A→B→C for the same question, build a composite (see `get_stop_overview`).
+## Tool design and errors
+
+Tool descriptions are model-facing API documentation. State what a tool
+returns, when it is appropriate, and a preferable alternative when one exists.
+Repeated A → B → C workflows may justify a focused composite tool, such as a
+stop overview, rather than forcing the model to chain low-level calls.
+
+Structured MCP content is the canonical machine-readable result. A concise
+human-readable summary may supplement it, but clients must not scrape JSON
+from text.
+
+Expected tool failures should be returned as MCP tool results when an SDK-level
+error could close or destabilize the MCP connection. Translate internal and
+upstream failures into the stable public MCP error contract; never expose raw
+`err.Error()`, stack traces, internal URLs, or secrets to MCP clients.
+
+## Claude Code workflow
+
+### Before implementing
+
+1. Read `AGENTS.md`.
+2. Inspect the relevant implementation and tests.
+3. Understand the current architecture and public contract.
+4. Prefer established production-ready patterns over new abstractions.
+5. Keep the change scoped to the request.
+
+### Before finishing
+
+1. Run the checks required by `AGENTS.md`.
+2. Review the complete diff.
+3. Remove unnecessary abstractions, comments, debug code, and unrelated changes.
+4. Verify public MCP contracts were not unintentionally changed.
+5. Report checks that could not be run.
