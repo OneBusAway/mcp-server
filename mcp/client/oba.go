@@ -40,7 +40,7 @@ var realtimePrefixes = []string{
 }
 
 type cacheEntry struct {
-	data      map[string]any
+	data      json.RawMessage
 	expiresAt time.Time
 }
 
@@ -100,7 +100,7 @@ func ttlForPath(path string) time.Duration {
 // Get makes a GET request to path with the given query params (plus the API key).
 // Responses are cached: static data for 60 minutes, real-time data for 30 seconds.
 // Each call emits one JSON log line to the logger (if set): op, cache, ms, bytes, tokens.
-func (c *OBAClient) Get(path string, params url.Values) (map[string]any, error) {
+func (c *OBAClient) Get(path string, params url.Values) (json.RawMessage, error) {
 	if params == nil {
 		params = url.Values{}
 	}
@@ -124,8 +124,8 @@ func (c *OBAClient) Get(path string, params url.Values) (map[string]any, error) 
 	if c.db != nil {
 		if row, err := c.db.GetEntry(context.Background(), cacheKey); err == nil {
 			if time.Now().Unix() < row.ExpiresAt {
-				var result map[string]any
-				if json.Unmarshal(row.Data, &result) == nil {
+				if json.Valid(row.Data) {
+					result := json.RawMessage(append([]byte(nil), row.Data...))
 					expiresAt := time.Unix(row.ExpiresAt, 0)
 					c.cacheMu.Lock()
 					c.cache[cacheKey] = cacheEntry{data: result, expiresAt: expiresAt}
@@ -178,6 +178,9 @@ func (c *OBAClient) Get(path string, params url.Values) (map[string]any, error) 
 	if err != nil {
 		return nil, fmt.Errorf("reading response: %w", err)
 	}
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return nil, fmt.Errorf("upstream returned HTTP %d", resp.StatusCode)
+	}
 
 	// Successful response: reset circuit breaker.
 	c.cbMu.Lock()
@@ -195,10 +198,10 @@ func (c *OBAClient) Get(path string, params url.Values) (map[string]any, error) 
 			op, ms, len(body), len(body)/4)
 	}
 
-	var result map[string]any
-	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("parsing JSON: %w", err)
+	if !json.Valid(body) {
+		return nil, fmt.Errorf("parsing JSON: invalid JSON")
 	}
+	result := json.RawMessage(append([]byte(nil), body...))
 
 	expiresAt := time.Now().Add(ttl)
 	c.cacheMu.Lock()
@@ -207,51 +210,14 @@ func (c *OBAClient) Get(path string, params url.Values) (map[string]any, error) 
 
 	// Write through to SQLite (only static data — real-time TTL is too short to be useful).
 	if c.db != nil && ttl >= staticTTL {
-		if encoded, err := json.Marshal(result); err == nil {
-			_ = c.db.SetEntry(context.Background(), cachedb.SetEntryParams{
-				Key:       cacheKey,
-				Data:      encoded,
-				ExpiresAt: expiresAt.Unix(),
-			})
-		}
+		_ = c.db.SetEntry(context.Background(), cachedb.SetEntryParams{
+			Key:       cacheKey,
+			Data:      result,
+			ExpiresAt: expiresAt.Unix(),
+		})
 	}
 
 	return result, nil
-}
-
-// Data validates the OBA response envelope { "code":200, "data":{...} }
-// and returns the inner data map.
-func Data(response map[string]any) (map[string]any, error) {
-	code, _ := response["code"].(float64)
-	if code != 200 {
-		text, _ := response["text"].(string)
-		return nil, fmt.Errorf("OBA error (code %d): %s", int(code), text)
-	}
-	data, ok := response["data"].(map[string]any)
-	if !ok {
-		return nil, fmt.Errorf("missing data field in response")
-	}
-	return data, nil
-}
-
-// StrVal converts any value to a string, returning "" for nil.
-func StrVal(v any) string {
-	if v == nil {
-		return ""
-	}
-	return fmt.Sprintf("%v", v)
-}
-
-// FloatVal extracts a float64, returning 0 if not present or wrong type.
-func FloatVal(v any) float64 {
-	f, _ := v.(float64)
-	return f
-}
-
-// AsSlice type-asserts v to []any, returning nil on failure.
-func AsSlice(v any) []any {
-	s, _ := v.([]any)
-	return s
 }
 
 // FormatRelativeTime formats a Unix millisecond timestamp relative to now in loc.
@@ -282,16 +248,11 @@ func (c *OBAClient) TimezoneFor(agencyID string) *time.Location {
 	if agencyID == "" {
 		return time.UTC
 	}
-	resp, err := c.Get("/api/where/agency/"+agencyID+".json", nil)
+	resp, err := c.GetAgency(agencyID)
 	if err != nil {
 		return time.UTC
 	}
-	data, err := Data(resp)
-	if err != nil {
-		return time.UTC
-	}
-	entry, _ := data["entry"].(map[string]any)
-	tzName := StrVal(entry["timezone"])
+	tzName := resp.Data.Entry.Timezone
 	if tzName == "" {
 		return time.UTC
 	}

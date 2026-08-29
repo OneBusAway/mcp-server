@@ -21,19 +21,10 @@ func (h *Handler) registerOverviewTools(s *server.MCPServer) {
 	)
 }
 
-type stopOverview struct {
-	StopID   string           `json:"stop_id"`
-	StopName string           `json:"stop_name,omitempty"`
-	Lat      float64          `json:"lat,omitempty"`
-	Lon      float64          `json:"lon,omitempty"`
-	Routes   []string         `json:"routes_serving,omitempty"`
-	Next     []arrivalSummary `json:"next_arrivals,omitempty"`
-}
-
 func (h *Handler) getStopOverview(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	stopID, err := req.RequireString("stop_id")
-	if err != nil || stopID == "" {
-		return mcp.NewToolResultError("stop_id is required"), nil
+	stopID, err := entityIDArgument(req, "stop_id")
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
 	}
 
 	loc := h.client.TimezoneFor(client.AgencyIDFromEntityID(stopID))
@@ -42,44 +33,29 @@ func (h *Handler) getStopOverview(ctx context.Context, req mcp.CallToolRequest) 
 		"minutesBefore": {"0"},
 		"minutesAfter":  {"30"},
 	}
-	resp, err := h.client.Get("/api/where/arrivals-and-departures-for-stop/"+stopID+".json", params)
+	resp, err := h.client.ArrivalsForStop(stopID, params)
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
-	data, err := client.Data(resp)
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-
-	entry, _ := data["entry"].(map[string]any)
-	if entry == nil {
+	entry := resp.Data.Entry
+	if resp.Code != 200 || entry.StopID == "" {
 		return mcp.NewToolResultText(fmt.Sprintf("No data found for stop %s.", stopID)), nil
 	}
 
-	overview := stopOverview{StopID: stopID}
+	overview := StopOverviewResponse{StopID: stopID}
 
-	if refs, ok := data["references"].(map[string]any); ok {
-		for _, s := range client.AsSlice(refs["stops"]) {
-			stop, ok := s.(map[string]any)
-			if !ok {
-				continue
-			}
-			if client.StrVal(stop["id"]) == stopID {
-				overview.StopName = client.StrVal(stop["name"])
-				overview.Lat = client.FloatVal(stop["lat"])
-				overview.Lon = client.FloatVal(stop["lon"])
-				break
-			}
+	for _, stop := range resp.Data.References.Stops {
+		if stop.ID == stopID {
+			overview.StopName = stop.Name
+			overview.Lat = stop.Lat
+			overview.Lon = stop.Lon
+			break
 		}
 	}
 
 	seen := map[string]bool{}
-	for _, item := range client.AsSlice(entry["arrivalsAndDepartures"]) {
-		a, ok := item.(map[string]any)
-		if !ok {
-			continue
-		}
-		routeID := client.StrVal(a["routeId"])
+	for _, arrival := range entry.ArrivalsAndDepartures {
+		routeID := arrival.RouteID
 		if routeID != "" && !seen[routeID] {
 			seen[routeID] = true
 			overview.Routes = append(overview.Routes, routeID)
@@ -87,35 +63,7 @@ func (h *Handler) getStopOverview(ctx context.Context, req mcp.CallToolRequest) 
 		if len(overview.Next) >= 5 {
 			continue
 		}
-		ar := arrivalSummary{
-			TripID:      client.StrVal(a["tripId"]),
-			ServiceDate: int64(client.FloatVal(a["serviceDate"])),
-			RouteID:     routeID,
-			RouteName:   client.StrVal(a["routeShortName"]),
-			Headsign:    client.StrVal(a["tripHeadsign"]),
-			Status:      client.StrVal(a["status"]),
-			VehicleID:   client.StrVal(a["vehicleId"]),
-			Predicted:   a["predicted"] == true,
-		}
-		if value, ok := a["numberOfStopsAway"]; ok {
-			stopsAway := int(client.FloatVal(value))
-			ar.NumberOfStopsAway = &stopsAway
-		}
-		if scheduled, ok := a["scheduledArrivalTime"].(float64); ok && scheduled > 0 {
-			ar.ScheduledArrival = client.FormatRelativeTime(scheduled, loc)
-		}
-		if schedDep, ok := a["scheduledDepartureTime"].(float64); ok && schedDep > 0 {
-			ar.ScheduledDeparture = client.FormatRelativeTime(schedDep, loc)
-		}
-		if ar.Predicted {
-			if predicted, ok := a["predictedArrivalTime"].(float64); ok && predicted > 0 {
-				ar.PredictedArrival = client.FormatRelativeTime(predicted, loc)
-			}
-			if predDep, ok := a["predictedDepartureTime"].(float64); ok && predDep > 0 {
-				ar.PredictedDeparture = client.FormatRelativeTime(predDep, loc)
-			}
-		}
-		overview.Next = append(overview.Next, ar)
+		overview.Next = append(overview.Next, arrivalResponse(arrival, loc))
 	}
 
 	out, _ := json.MarshalIndent(overview, "", "  ")

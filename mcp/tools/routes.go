@@ -41,7 +41,7 @@ func (h *Handler) registerRouteTools(s *server.MCPServer) {
 		mcp.NewTool("search_routes",
 			mcp.WithDescription("Search routes by number or name (e.g. 'E', 'express'). Returns matching route IDs and names. Use this to find a route_id when you only have a name."),
 			mcp.WithString("query", mcp.Required(), mcp.Description("Route number or name to search for")),
-			mcp.WithNumber("max_count", mcp.Description("Max results to return (default: 5)")),
+			mcp.WithNumber("max_count", mcp.Description("Max results to return: 1-20 (default: 5)")),
 		),
 		h.searchRoutes,
 	)
@@ -59,9 +59,9 @@ func (h *Handler) registerRouteTools(s *server.MCPServer) {
 			mcp.WithDescription("Find routes that serve an area near GPS coordinates."),
 			mcp.WithNumber("lat", mcp.Required(), mcp.Description("Latitude")),
 			mcp.WithNumber("lon", mcp.Required(), mcp.Description("Longitude")),
-			mcp.WithNumber("radius", mcp.Description("Search radius in meters (default: 500)")),
-			mcp.WithNumber("lat_span", mcp.Description("Bounding box latitude span (alternative to radius)")),
-			mcp.WithNumber("lon_span", mcp.Description("Bounding box longitude span (alternative to radius)")),
+			mcp.WithNumber("radius", mcp.Description("Search radius in meters: 1-5000 (default: 500)")),
+			mcp.WithNumber("lat_span", mcp.Description("Bounding-box latitude span: >0 and ≤180 (alternative to radius)")),
+			mcp.WithNumber("lon_span", mcp.Description("Bounding-box longitude span: >0 and ≤180 (alternative to radius)")),
 		),
 		h.getRoutesForLocation,
 	)
@@ -78,7 +78,7 @@ func (h *Handler) registerRouteTools(s *server.MCPServer) {
 		mcp.NewTool("get_trips_for_route",
 			mcp.WithDescription("Get active trips currently running on a route, with real-time status and vehicle info."),
 			mcp.WithString("route_id", mcp.Required(), mcp.Description("Route ID (e.g. 'unitrans_E')")),
-			mcp.WithNumber("time", mcp.Description("Query trips at specific time (epoch ms)")),
+			mcp.WithNumber("time", mcp.Description("Query trips at a Unix epoch millisecond timestamp through 2100")),
 			mcp.WithBoolean("include_schedule", mcp.Description("Include full stop schedule in response (default true)")),
 			mcp.WithBoolean("include_status", mcp.Description("Include real-time status in response (default true)")),
 		),
@@ -89,86 +89,66 @@ func (h *Handler) registerRouteTools(s *server.MCPServer) {
 		mcp.NewTool("get_schedule_for_route",
 			mcp.WithDescription("Get the structure of a route's schedule for a date: directions, trip IDs, and stop order. Does not include per-stop departure times (use get_stop_schedule for a stop's timetable with times). Use this to answer 'what trips run on route E?' or 'how many trips does route L have?'"),
 			mcp.WithString("route_id", mcp.Required(), mcp.Description("Route ID (e.g. 'unitrans_E')")),
-			mcp.WithString("date", mcp.Description("Date in YYYY-MM-DD format (defaults to today)")),
+			mcp.WithString("date", mcp.Description("Agency-local service date in strict YYYY-MM-DD format (defaults to today)")),
 		),
 		h.getScheduleForRoute,
 	)
 }
 
-type routeSummary struct {
-	ID        string `json:"id"`
-	ShortName string `json:"short_name"`
-	LongName  string `json:"long_name,omitempty"`
-	AgencyID  string `json:"agency_id"`
-	Color     string `json:"color,omitempty"`
-}
-
-func routeFromMap(m map[string]any) routeSummary {
-	return routeSummary{
-		ID:        client.StrVal(m["id"]),
-		ShortName: client.StrVal(m["shortName"]),
-		LongName:  client.StrVal(m["longName"]),
-		AgencyID:  client.StrVal(m["agencyId"]),
-		Color:     client.StrVal(m["color"]),
+func routeFromDTO(route client.Route) RouteResponse {
+	return RouteResponse{
+		ID: route.ID, ShortName: route.ShortName, LongName: route.LongName, AgencyID: route.AgencyID, Color: route.Color,
 	}
 }
 
 func (h *Handler) getRoute(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	routeID, err := req.RequireString("route_id")
-	if err != nil || routeID == "" {
-		return mcp.NewToolResultError("route_id is required"), nil
-	}
-
-	resp, err := h.client.Get("/api/where/route/"+routeID+".json", nil)
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	data, err := client.Data(resp)
+	routeID, err := entityIDArgument(req, "route_id")
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
 
-	entry, _ := data["entry"].(map[string]any)
-	if entry == nil {
+	resp, err := h.client.GetRoute(routeID)
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	if resp.Code != 200 || resp.Data.Entry.ID == "" {
 		return mcp.NewToolResultText(fmt.Sprintf("No route found with ID %q.", routeID)), nil
 	}
 
-	out, _ := json.MarshalIndent(routeFromMap(entry), "", "  ")
+	out, _ := json.MarshalIndent(routeFromDTO(resp.Data.Entry), "", "  ")
 	return mcp.NewToolResultText(fmt.Sprintf("Route %s:\n%s", routeID, out)), nil
 }
 
 func (h *Handler) searchRoutes(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	query, err := req.RequireString("query")
-	if err != nil || query == "" {
-		return mcp.NewToolResultError("query is required"), nil
+	query, err := searchArgument(req)
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	maxCount, err := optionalLimit(req, "max_count", 5, 20)
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
 	}
 
 	params := url.Values{
 		"input":    {query},
-		"maxCount": {fmt.Sprintf("%.0f", req.GetFloat("max_count", 5))},
+		"maxCount": {fmt.Sprintf("%d", maxCount)},
 	}
 
-	resp, err := h.client.Get("/api/where/search/route.json", params)
+	resp, err := h.client.SearchRoutes(params)
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
-	data, err := client.Data(resp)
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-
-	list := client.AsSlice(data["list"])
+	list := resp.Data.List
 	if len(list) == 0 {
 		return mcp.NewToolResultText(fmt.Sprintf("No routes found matching %q.", query)), nil
 	}
 
-	results := make([]routeSummary, 0, len(list))
-	for _, item := range list {
-		r, ok := item.(map[string]any)
-		if !ok {
-			continue
-		}
-		results = append(results, routeFromMap(r))
+	results := make([]RouteResponse, 0, len(list))
+	for _, route := range list {
+		results = append(results, routeFromDTO(route))
+	}
+	if len(results) > maxCount {
+		results = results[:maxCount]
 	}
 
 	out, _ := json.MarshalIndent(results, "", "  ")
@@ -176,28 +156,19 @@ func (h *Handler) searchRoutes(ctx context.Context, req mcp.CallToolRequest) (*m
 }
 
 func (h *Handler) getRoutesForAgency(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	agencyID, err := req.RequireString("agency_id")
-	if err != nil || agencyID == "" {
-		return mcp.NewToolResultError("agency_id is required"), nil
-	}
-
-	resp, err := h.client.Get("/api/where/routes-for-agency/"+agencyID+".json", nil)
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	data, err := client.Data(resp)
+	agencyID, err := entityIDArgument(req, "agency_id")
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
 
-	list := client.AsSlice(data["list"])
-	results := make([]routeSummary, 0, len(list))
-	for _, item := range list {
-		r, ok := item.(map[string]any)
-		if !ok {
-			continue
-		}
-		results = append(results, routeFromMap(r))
+	resp, err := h.client.RoutesForAgency(agencyID)
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	list := resp.Data.List
+	results := make([]RouteResponse, 0, len(list))
+	for _, route := range list {
+		results = append(results, routeFromDTO(route))
 	}
 
 	total := len(results)
@@ -211,49 +182,56 @@ func (h *Handler) getRoutesForAgency(ctx context.Context, req mcp.CallToolReques
 }
 
 func (h *Handler) getRoutesForLocation(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	lat, err := req.RequireFloat("lat")
+	lat, lon, err := requiredCoordinates(req)
 	if err != nil {
-		return mcp.NewToolResultError("lat is required"), nil
+		return mcp.NewToolResultError(err.Error()), nil
 	}
-	lon, err := req.RequireFloat("lon")
+	radius, err := optionalRadius(req, 500, 5_000)
 	if err != nil {
-		return mcp.NewToolResultError("lon is required"), nil
+		return mcp.NewToolResultError(err.Error()), nil
 	}
-	radius := req.GetFloat("radius", 500)
+	latSpan, hasLatSpan, err := optionalSpan(req, "lat_span")
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	lonSpan, hasLonSpan, err := optionalSpan(req, "lon_span")
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
 
+	_, radiusProvided, err := numberArgument(req, "radius", false)
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	if hasLatSpan != hasLonSpan {
+		return mcp.NewToolResultError("lat_span and lon_span must be provided together"), nil
+	}
+	if hasLatSpan && radiusProvided {
+		return mcp.NewToolResultError("radius cannot be combined with lat_span and lon_span"), nil
+	}
 	params := url.Values{
-		"lat":    {fmt.Sprintf("%f", lat)},
-		"lon":    {fmt.Sprintf("%f", lon)},
-		"radius": {fmt.Sprintf("%.0f", radius)},
+		"lat": {fmt.Sprintf("%f", lat)},
+		"lon": {fmt.Sprintf("%f", lon)},
 	}
-	if ls := req.GetFloat("lat_span", 0); ls > 0 {
-		params.Set("latSpan", fmt.Sprintf("%f", ls))
-	}
-	if ls := req.GetFloat("lon_span", 0); ls > 0 {
-		params.Set("lonSpan", fmt.Sprintf("%f", ls))
+	if hasLatSpan {
+		params.Set("latSpan", fmt.Sprintf("%f", latSpan))
+		params.Set("lonSpan", fmt.Sprintf("%f", lonSpan))
+	} else {
+		params.Set("radius", fmt.Sprintf("%d", radius))
 	}
 
-	resp, err := h.client.Get("/api/where/routes-for-location.json", params)
+	resp, err := h.client.RoutesForLocation(params)
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
-	data, err := client.Data(resp)
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-
-	list := client.AsSlice(data["list"])
+	list := resp.Data.List
 	if len(list) == 0 {
 		return mcp.NewToolResultText("No routes found near that location."), nil
 	}
 
-	results := make([]routeSummary, 0, len(list))
-	for _, item := range list {
-		r, ok := item.(map[string]any)
-		if !ok {
-			continue
-		}
-		results = append(results, routeFromMap(r))
+	results := make([]RouteResponse, 0, len(list))
+	for _, route := range list {
+		results = append(results, routeFromDTO(route))
 	}
 
 	total := len(results)
@@ -267,172 +245,106 @@ func (h *Handler) getRoutesForLocation(ctx context.Context, req mcp.CallToolRequ
 }
 
 func (h *Handler) getStopsForRoute(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	routeID, err := req.RequireString("route_id")
-	if err != nil || routeID == "" {
-		return mcp.NewToolResultError("route_id is required"), nil
-	}
-
-	resp, err := h.client.Get("/api/where/stops-for-route/"+routeID+".json", nil)
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	data, err := client.Data(resp)
+	routeID, err := entityIDArgument(req, "route_id")
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
 
-	entry, _ := data["entry"].(map[string]any)
-	if entry == nil {
+	resp, err := h.client.StopsForRoute(routeID)
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	entry := resp.Data.Entry
+	if resp.Code != 200 || entry.RouteID == "" {
 		return mcp.NewToolResultText("No stops found for this route."), nil
 	}
 
-	type refStop struct {
-		Name string
-		Lat  float64
-		Lon  float64
-	}
-	stopLookup := map[string]refStop{}
-	if refs, ok := data["references"].(map[string]any); ok {
-		for _, s := range client.AsSlice(refs["stops"]) {
-			stop, ok := s.(map[string]any)
-			if !ok {
-				continue
-			}
-			stopLookup[client.StrVal(stop["id"])] = refStop{
-				Name: client.StrVal(stop["name"]),
-				Lat:  client.FloatVal(stop["lat"]),
-				Lon:  client.FloatVal(stop["lon"]),
-			}
-		}
+	stopLookup := map[string]client.Stop{}
+	for _, stop := range resp.Data.References.Stops {
+		stopLookup[stop.ID] = stop
 	}
 
-	type directionGroup struct {
-		Direction string        `json:"direction"`
-		Stops     []stopSummary `json:"stops"`
-	}
-	type routePolyline struct {
-		Points string  `json:"encoded_polyline"`
-		Length float64 `json:"length,omitempty"`
-	}
-
-	var groups []directionGroup
-	for _, sg := range client.AsSlice(entry["stopGroupings"]) {
-		grouping, ok := sg.(map[string]any)
-		if !ok {
-			continue
-		}
-		for _, sub := range client.AsSlice(grouping["stopGroups"]) {
-			group, ok := sub.(map[string]any)
-			if !ok {
-				continue
-			}
-			nameObj, _ := group["name"].(map[string]any)
-			stopIDs := client.AsSlice(group["stopIds"])
-			stops := make([]stopSummary, 0, len(stopIDs))
-			for _, sid := range stopIDs {
-				id := fmt.Sprintf("%v", sid)
+	var groups []RouteDirectionStopsResponse
+	for _, grouping := range entry.StopGroupings {
+		for _, group := range grouping.StopGroups {
+			stops := make([]StopResponse, 0, len(group.StopIDs))
+			for _, id := range group.StopIDs {
 				ref := stopLookup[id]
-				stops = append(stops, stopSummary{ID: id, Name: ref.Name, Lat: ref.Lat, Lon: ref.Lon})
+				stops = append(stops, StopResponse{ID: id, Name: ref.Name, Lat: ref.Lat, Lon: ref.Lon})
 			}
 			dirNote := ""
 			if len(stops) > 30 {
 				dirNote = fmt.Sprintf(" [first 30 of %d]", len(stops))
 				stops = stops[:30]
 			}
-			groups = append(groups, directionGroup{
-				Direction: client.StrVal(nameObj["name"]) + dirNote,
+			groups = append(groups, RouteDirectionStopsResponse{
+				Direction: group.Name.Name + dirNote,
 				Stops:     stops,
 			})
 		}
 	}
 
-	polylines := make([]routePolyline, 0)
-	for _, item := range client.AsSlice(entry["polylines"]) {
-		polyline, ok := item.(map[string]any)
-		if !ok {
-			continue
-		}
-		if points := client.StrVal(polyline["points"]); points != "" {
-			polylines = append(polylines, routePolyline{
-				Points: points,
-				Length: client.FloatVal(polyline["length"]),
+	polylines := make([]RoutePolylineResponse, 0)
+	for _, polyline := range entry.Polylines {
+		if polyline.Points != "" {
+			polylines = append(polylines, RoutePolylineResponse{
+				Points: polyline.Points,
+				Length: polyline.Length,
 			})
 		}
 	}
 
-	// Preserve the direction and stop information, but include the canonical
-	// OBA geometry. Consumers must draw these polylines instead of joining
-	// stop coordinates with straight segments.
-	out, _ := json.MarshalIndent(struct {
-		Directions []directionGroup `json:"directions"`
-		Polylines  []routePolyline  `json:"polylines,omitempty"`
-	}{
-		Directions: groups,
-		Polylines:  polylines,
-	}, "", "  ")
+	out, _ := json.MarshalIndent(RouteStopsResponse{Directions: groups, Polylines: polylines}, "", "  ")
 	return mcp.NewToolResultText(fmt.Sprintf("Stops for route %s:\n%s", routeID, out)), nil
 }
 
 func (h *Handler) getTripsForRoute(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	routeID, err := req.RequireString("route_id")
-	if err != nil || routeID == "" {
-		return mcp.NewToolResultError("route_id is required"), nil
+	routeID, err := entityIDArgument(req, "route_id")
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
 	}
 
 	params := url.Values{}
-	if t := req.GetFloat("time", 0); t > 0 {
-		params.Set("time", fmt.Sprintf("%.0f", t))
+	if timestamp, present, err := optionalTimestamp(req, "time"); err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	} else if present {
+		params.Set("time", fmt.Sprintf("%d", timestamp))
 	}
-	args := req.GetArguments()
-	if _, ok := args["include_schedule"]; ok {
-		params.Set("includeSchedule", fmt.Sprintf("%v", req.GetBool("include_schedule", true)))
-	}
-	if _, ok := args["include_status"]; ok {
-		params.Set("includeStatus", fmt.Sprintf("%v", req.GetBool("include_status", true)))
-	}
-
-	resp, err := h.client.Get("/api/where/trips-for-route/"+routeID+".json", params)
+	includeSchedule, err := optionalBool(req, "include_schedule", true)
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
-	data, err := client.Data(resp)
+	includeStatus, err := optionalBool(req, "include_status", true)
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
+	params.Set("includeSchedule", fmt.Sprintf("%t", includeSchedule))
+	params.Set("includeStatus", fmt.Sprintf("%t", includeStatus))
 
-	list := client.AsSlice(data["list"])
+	resp, err := h.client.TripsForRoute(routeID, params)
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	list := resp.Data.List
 	if len(list) == 0 {
 		return mcp.NewToolResultText(fmt.Sprintf("No active trips found for route %s.", routeID)), nil
 	}
 
-	type tripSummary struct {
-		TripID    string  `json:"trip_id"`
-		Headsign  string  `json:"headsign,omitempty"`
-		Phase     string  `json:"phase,omitempty"`
-		VehicleID string  `json:"vehicle_id,omitempty"`
-		Lat       float64 `json:"lat,omitempty"`
-		Lon       float64 `json:"lon,omitempty"`
-	}
-
-	results := make([]tripSummary, 0, len(list))
-	for _, item := range list {
-		t, ok := item.(map[string]any)
-		if !ok {
-			continue
+	results := make([]RouteTripResponse, 0, len(list))
+	for _, trip := range list {
+		out := RouteTripResponse{TripID: trip.TripID}
+		if trip.Trip != nil {
+			out.Headsign = trip.Trip.TripHeadsign
 		}
-		ts := tripSummary{TripID: client.StrVal(t["tripId"])}
-		if trip, ok := t["trip"].(map[string]any); ok {
-			ts.Headsign = client.StrVal(trip["tripHeadsign"])
-		}
-		if status, ok := t["status"].(map[string]any); ok {
-			ts.Phase = client.StrVal(status["phase"])
-			ts.VehicleID = client.StrVal(status["vehicleId"])
-			if pos, ok := status["position"].(map[string]any); ok {
-				ts.Lat = client.FloatVal(pos["lat"])
-				ts.Lon = client.FloatVal(pos["lon"])
+		if trip.Status != nil {
+			out.Phase = trip.Status.Phase
+			out.VehicleID = trip.Status.VehicleID
+			if trip.Status.Position != nil {
+				out.Lat = trip.Status.Position.Lat
+				out.Lon = trip.Status.Position.Lon
 			}
 		}
-		results = append(results, ts)
+		results = append(results, out)
 	}
 
 	total := len(results)
@@ -446,62 +358,38 @@ func (h *Handler) getTripsForRoute(ctx context.Context, req mcp.CallToolRequest)
 }
 
 func (h *Handler) getScheduleForRoute(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	routeID, err := req.RequireString("route_id")
-	if err != nil || routeID == "" {
-		return mcp.NewToolResultError("route_id is required"), nil
+	routeID, err := entityIDArgument(req, "route_id")
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
 	}
 
 	params := url.Values{}
-	if date := req.GetString("date", ""); date != "" {
+	date, err := optionalDate(req)
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	if date != "" {
 		params.Set("date", date)
 	}
 
-	resp, err := h.client.Get("/api/where/schedule-for-route/"+routeID+".json", params)
+	resp, err := h.client.ScheduleForRoute(routeID, params)
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
-	data, err := client.Data(resp)
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-
-	entry, _ := data["entry"].(map[string]any)
-	if entry == nil {
+	entry := resp.Data.Entry
+	if resp.Code != 200 || entry.RouteID == "" {
 		return mcp.NewToolResultText("No schedule data found for this route."), nil
 	}
 
-	type directionSummary struct {
-		DirectionID string   `json:"direction_id"`
-		Headsign    string   `json:"headsign"`
-		TripCount   int      `json:"trip_count"`
-		TripIDs     []string `json:"trip_ids"`
-		StopIDs     []string `json:"stop_ids"`
-	}
-	type scheduleResult struct {
-		RouteID    string             `json:"route_id"`
-		Date       string             `json:"date,omitempty"`
-		Directions []directionSummary `json:"directions"`
-	}
-
-	result := scheduleResult{RouteID: routeID}
-	if d := client.FloatVal(entry["scheduleDate"]); d > 0 {
+	result := RouteScheduleStructureResponse{RouteID: routeID}
+	if d := entry.ScheduleDate; d > 0 {
 		result.Date = time.UnixMilli(int64(d)).Format("2006-01-02")
 	}
 
-	for _, grpRaw := range client.AsSlice(entry["stopTripGroupings"]) {
-		grp, ok := grpRaw.(map[string]any)
-		if !ok {
-			continue
-		}
-		dir := directionSummary{
-			DirectionID: client.StrVal(grp["directionId"]),
-			Headsign:    client.StrVal(grp["tripHeadsign"]),
-		}
-		for _, tid := range client.AsSlice(grp["tripIds"]) {
-			dir.TripIDs = append(dir.TripIDs, fmt.Sprintf("%v", tid))
-		}
-		for _, sid := range client.AsSlice(grp["stopIds"]) {
-			dir.StopIDs = append(dir.StopIDs, fmt.Sprintf("%v", sid))
+	for _, grp := range entry.StopTripGroupings {
+		dir := RouteScheduleDirectionResponse{DirectionID: grp.DirectionID, TripIDs: append([]string(nil), grp.TripIDs...), StopIDs: append([]string(nil), grp.StopIDs...)}
+		if len(grp.TripHeadsigns) > 0 {
+			dir.Headsign = grp.TripHeadsigns[0]
 		}
 		dir.TripCount = len(dir.TripIDs)
 		result.Directions = append(result.Directions, dir)
@@ -512,57 +400,35 @@ func (h *Handler) getScheduleForRoute(ctx context.Context, req mcp.CallToolReque
 }
 
 func (h *Handler) getRouteIDsForAgency(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	agencyID, err := req.RequireString("agency_id")
-	if err != nil || agencyID == "" {
-		return mcp.NewToolResultError("agency_id is required"), nil
-	}
-
-	resp, err := h.client.Get("/api/where/route-ids-for-agency/"+agencyID+".json", nil)
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	data, err := client.Data(resp)
+	agencyID, err := entityIDArgument(req, "agency_id")
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
 
-	list := client.AsSlice(data["list"])
-	ids := make([]string, 0, len(list))
-	for _, item := range list {
-		ids = append(ids, fmt.Sprintf("%v", item))
+	resp, err := h.client.RouteIDsForAgency(agencyID)
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
 	}
+	ids := RouteIDsResponse(append([]string(nil), resp.Data.List...))
 
 	out, _ := json.MarshalIndent(ids, "", "  ")
 	return mcp.NewToolResultText(fmt.Sprintf("Route IDs for agency %s (%d total):\n%s", agencyID, len(ids), out)), nil
 }
 
 func (h *Handler) getShape(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	shapeID, err := req.RequireString("shape_id")
-	if err != nil || shapeID == "" {
-		return mcp.NewToolResultError("shape_id is required"), nil
-	}
-
-	resp, err := h.client.Get("/api/where/shape/"+shapeID+".json", nil)
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	data, err := client.Data(resp)
+	shapeID, err := entityIDArgument(req, "shape_id")
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
 
-	entry, _ := data["entry"].(map[string]any)
-	if entry == nil {
+	resp, err := h.client.GetShape(shapeID)
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	if resp.Code != 200 || resp.Data.Entry.Points == "" {
 		return mcp.NewToolResultText(fmt.Sprintf("No shape found with ID %q.", shapeID)), nil
 	}
 
-	type result struct {
-		Points string  `json:"encoded_polyline"`
-		Length float64 `json:"length,omitempty"`
-	}
-	out, _ := json.MarshalIndent(result{
-		Points: client.StrVal(entry["points"]),
-		Length: client.FloatVal(entry["length"]),
-	}, "", "  ")
+	out, _ := json.MarshalIndent(ShapeResponse{Points: resp.Data.Entry.Points, Length: resp.Data.Entry.Length}, "", "  ")
 	return mcp.NewToolResultText(fmt.Sprintf("Shape %s:\n%s", shapeID, out)), nil
 }

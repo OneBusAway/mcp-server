@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"oba-mcp/client"
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -28,36 +27,39 @@ func (h *Handler) registerSystemTools(s *server.MCPServer) {
 }
 
 func (h *Handler) getCurrentTime(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	resp, err := h.client.Get("/api/where/current-time.json", nil)
+	resp, err := h.client.GetCurrentTime()
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
-	data, err := client.Data(resp)
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-
-	entry, _ := data["entry"].(map[string]any)
-	if entry == nil {
+	entry := resp.Data.Entry
+	if resp.Code != 200 || entry.Time == 0 {
 		return mcp.NewToolResultText("Could not retrieve server time."), nil
 	}
 
-	ms := client.FloatVal(entry["time"])
-	readable := client.StrVal(entry["readableTime"])
+	ms := entry.Time
+	readable := entry.ReadableTime
 	if readable == "" && ms > 0 {
 		readable = time.UnixMilli(int64(ms)).Format(time.RFC3339)
 	}
 
-	return mcp.NewToolResultText(fmt.Sprintf("Current server time: %s", readable)), nil
+	out, _ := json.MarshalIndent(CurrentTimeResponse{Time: readable}, "", "  ")
+	return mcp.NewToolResultText(fmt.Sprintf("Current server time:\n%s", out)), nil
 }
 
 func (h *Handler) getMetadata(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	// Metadata lives at /api/v2/metadata.json (not the standard envelope)
-	raw, err := h.client.Get("/api/v2/metadata.json", nil)
+	metadata, err := h.client.GetMetadata()
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
 
-	out, _ := json.MarshalIndent(raw, "", "  ")
+	output := MetadataResponse{RealtimeFeeds: make(map[string]string, len(metadata.RealtimeFeeds))}
+	if metadata.StaticGTFSLastUpdated != nil {
+		output.StaticGTFSLastUpdated = metadata.StaticGTFSLastUpdated.Format(time.RFC3339)
+	}
+	for name, updated := range metadata.RealtimeFeeds {
+		output.RealtimeFeeds[name] = updated.Format(time.RFC3339)
+	}
+	out, _ := json.MarshalIndent(output, "", "  ")
 	return mcp.NewToolResultText(fmt.Sprintf("Server metadata:\n%s", out)), nil
 }

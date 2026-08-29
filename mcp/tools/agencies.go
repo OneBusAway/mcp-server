@@ -28,54 +28,30 @@ func (h *Handler) registerAgencyTools(s *server.MCPServer) {
 }
 
 func (h *Handler) getAgencies(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	resp, err := h.client.Get("/api/where/agencies-with-coverage.json", nil)
+	resp, err := h.client.GetAgencies()
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
-	data, err := client.Data(resp)
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+	if resp.Code != 200 {
+		return mcp.NewToolResultError(resp.Text), nil
 	}
-
-	list := client.AsSlice(data["list"])
-	if len(list) == 0 {
+	if len(resp.Data.List) == 0 {
 		return mcp.NewToolResultText("No agencies found."), nil
 	}
 
 	// Agency details (name, url, etc.) live in references, keyed by id
-	agencyDetails := map[string]map[string]any{}
-	if refs, ok := data["references"].(map[string]any); ok {
-		for _, a := range client.AsSlice(refs["agencies"]) {
-			agency, ok := a.(map[string]any)
-			if !ok {
-				continue
-			}
-			agencyDetails[client.StrVal(agency["id"])] = agency
-		}
+	agencyDetails := make(map[string]client.Agency, len(resp.Data.References.Agencies))
+	for _, agency := range resp.Data.References.Agencies {
+		agencyDetails[agency.ID] = agency
 	}
 
-	type result struct {
-		ID   string  `json:"id"`
-		Name string  `json:"name"`
-		URL  string  `json:"url,omitempty"`
-		Lat  float64 `json:"lat"`
-		Lon  float64 `json:"lon"`
-	}
-
-	results := make([]result, 0, len(list))
-	for _, item := range list {
-		entry, ok := item.(map[string]any)
-		if !ok {
-			continue
-		}
-		id := client.StrVal(entry["agencyId"])
+	results := make([]AgencySummary, 0, len(resp.Data.List))
+	for _, entry := range resp.Data.List {
+		id := entry.AgencyID
 		det := agencyDetails[id]
-		results = append(results, result{
+		results = append(results, AgencySummary{
 			ID:   id,
-			Name: client.StrVal(det["name"]),
-			URL:  client.StrVal(det["url"]),
-			Lat:  client.FloatVal(entry["lat"]),
-			Lon:  client.FloatVal(entry["lon"]),
+			Name: det.Name, URL: det.URL, Lat: entry.Lat, Lon: entry.Lon,
 		})
 	}
 
@@ -84,39 +60,25 @@ func (h *Handler) getAgencies(ctx context.Context, req mcp.CallToolRequest) (*mc
 }
 
 func (h *Handler) getAgency(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	agencyID, err := req.RequireString("agency_id")
-	if err != nil || agencyID == "" {
-		return mcp.NewToolResultError("agency_id is required"), nil
-	}
-
-	resp, err := h.client.Get("/api/where/agency/"+agencyID+".json", nil)
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	data, err := client.Data(resp)
+	agencyID, err := entityIDArgument(req, "agency_id")
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
 
-	entry, _ := data["entry"].(map[string]any)
-	if entry == nil {
+	resp, err := h.client.GetAgency(agencyID)
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	if resp.Code != 200 {
+		return mcp.NewToolResultError(resp.Text), nil
+	}
+	entry := resp.Data.Entry
+	if entry.ID == "" {
 		return mcp.NewToolResultText(fmt.Sprintf("No agency found with ID %q.", agencyID)), nil
 	}
 
-	type result struct {
-		ID       string `json:"id"`
-		Name     string `json:"name"`
-		URL      string `json:"url,omitempty"`
-		Phone    string `json:"phone,omitempty"`
-		Timezone string `json:"timezone,omitempty"`
-	}
-
-	out, _ := json.MarshalIndent(result{
-		ID:       client.StrVal(entry["id"]),
-		Name:     client.StrVal(entry["name"]),
-		URL:      client.StrVal(entry["url"]),
-		Phone:    client.StrVal(entry["phone"]),
-		Timezone: client.StrVal(entry["timezone"]),
+	out, _ := json.MarshalIndent(AgencyResponse{
+		ID: entry.ID, Name: entry.Name, URL: entry.URL, Phone: entry.Phone, Timezone: entry.Timezone,
 	}, "", "  ")
 	return mcp.NewToolResultText(fmt.Sprintf("Agency %s:\n%s", agencyID, out)), nil
 }
