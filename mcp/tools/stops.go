@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/url"
 	"oba-mcp/client"
@@ -76,29 +75,28 @@ func stopFromDTO(stop client.Stop) StopResponse {
 func (h *Handler) getStop(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	stopID, err := entityIDArgument(req, "stop_id")
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 
-	resp, err := h.client.GetStop(stopID)
+	resp, err := h.client.GetStop(ctx, stopID)
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 	if resp.Code != 200 || resp.Data.Entry.ID == "" {
-		return mcp.NewToolResultText(fmt.Sprintf("No stop found with ID %q.", stopID)), nil
+		return toResult(textResult(fmt.Sprintf("No stop found with ID %q.", stopID))), nil
 	}
 
-	out, _ := json.MarshalIndent(stopFromDTO(resp.Data.Entry), "", "  ")
-	return mcp.NewToolResultText(fmt.Sprintf("Stop %s:\n%s", stopID, out)), nil
+	return toResult(dataResult(fmt.Sprintf("Stop %s:\n", stopID), stopFromDTO(resp.Data.Entry))), nil
 }
 
 func (h *Handler) searchStops(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	query, err := searchArgument(req)
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 	maxCount, err := optionalLimit(req, "max_count", 5, 20)
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 
 	params := url.Values{
@@ -106,13 +104,13 @@ func (h *Handler) searchStops(ctx context.Context, req mcp.CallToolRequest) (*mc
 		"maxCount": {fmt.Sprintf("%d", maxCount)},
 	}
 
-	resp, err := h.client.SearchStops(params)
+	resp, err := h.client.SearchStops(ctx, params)
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 	list := resp.Data.List
 	if len(list) == 0 {
-		return mcp.NewToolResultText(fmt.Sprintf("No stops found matching %q.", query)), nil
+		return toResult(textResult(fmt.Sprintf("No stops found matching %q.", query))), nil
 	}
 
 	results := make([]StopResponse, 0, len(list))
@@ -123,41 +121,40 @@ func (h *Handler) searchStops(ctx context.Context, req mcp.CallToolRequest) (*mc
 		results = results[:maxCount]
 	}
 
-	out, _ := json.MarshalIndent(results, "", "  ")
-	return mcp.NewToolResultText(fmt.Sprintf("Found %d stops matching %q:\n%s", len(results), query, out)), nil
+	return toResult(dataResult(fmt.Sprintf("Found %d stops matching %q:\n", len(results), query), results)), nil
 }
 
 func (h *Handler) findStopsNearLocation(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	lat, lon, err := requiredCoordinates(req)
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 	radius, err := optionalRadius(req, 500, 5_000)
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 	latSpan, hasLatSpan, err := optionalSpan(req, "lat_span")
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 	lonSpan, hasLonSpan, err := optionalSpan(req, "lon_span")
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 	maxCount, err := optionalLimit(req, "max_count", 10, 20)
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 
 	_, radiusProvided, err := numberArgument(req, "radius", false)
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 	if hasLatSpan != hasLonSpan {
-		return mcp.NewToolResultError("lat_span and lon_span must be provided together"), nil
+		return toResult(errorResult("lat_span and lon_span must be provided together")), nil
 	}
 	if hasLatSpan && radiusProvided {
-		return mcp.NewToolResultError("radius cannot be combined with lat_span and lon_span"), nil
+		return toResult(errorResult("radius cannot be combined with lat_span and lon_span")), nil
 	}
 	params := url.Values{
 		"lat": {fmt.Sprintf("%f", lat)},
@@ -170,13 +167,13 @@ func (h *Handler) findStopsNearLocation(ctx context.Context, req mcp.CallToolReq
 		params.Set("radius", fmt.Sprintf("%d", radius))
 	}
 
-	resp, err := h.client.StopsForLocation(params)
+	resp, err := h.client.StopsForLocation(ctx, params)
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 	list := resp.Data.List
 	if len(list) == 0 {
-		return mcp.NewToolResultText("No stops found within the specified radius."), nil
+		return toResult(textResult("No stops found within the specified radius.")), nil
 	}
 
 	results := make([]StopResponse, 0, len(list))
@@ -190,19 +187,18 @@ func (h *Handler) findStopsNearLocation(ctx context.Context, req mcp.CallToolReq
 		note = fmt.Sprintf(" (showing %d of %d in area)", maxCount, total)
 		results = results[:maxCount]
 	}
-	out, _ := json.MarshalIndent(results, "", "  ")
-	return mcp.NewToolResultText(fmt.Sprintf("Found %d stops near (%.4f, %.4f)%s:\n%s", len(results), lat, lon, note, out)), nil
+	return toResult(dataResult(fmt.Sprintf("Found %d stops near (%.4f, %.4f)%s:\n", len(results), lat, lon, note), results)), nil
 }
 
 func (h *Handler) getStopsForAgency(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	agencyID, err := entityIDArgument(req, "agency_id")
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 
-	resp, err := h.client.StopsForAgency(agencyID)
+	resp, err := h.client.StopsForAgency(ctx, agencyID)
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 	list := resp.Data.List
 	results := make([]StopResponse, 0, len(list))
@@ -216,37 +212,36 @@ func (h *Handler) getStopsForAgency(ctx context.Context, req mcp.CallToolRequest
 		note = fmt.Sprintf(" (showing 50 of %d — use find_stops_near_location to filter by area)", total)
 		results = results[:50]
 	}
-	out, _ := json.MarshalIndent(results, "", "  ")
-	return mcp.NewToolResultText(fmt.Sprintf("Stops for agency %s (%d shown%s):\n%s", agencyID, len(results), note, out)), nil
+	return toResult(dataResult(fmt.Sprintf("Stops for agency %s (%d shown%s):\n", agencyID, len(results), note), results)), nil
 }
 
 func (h *Handler) getStopSchedule(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	stopID, err := entityIDArgument(req, "stop_id")
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 
 	params := url.Values{}
 	date, err := optionalDate(req)
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 	if date != "" {
 		params.Set("date", date)
 	}
 
-	resp, err := h.client.ScheduleForStop(stopID, params)
+	resp, err := h.client.ScheduleForStop(ctx, stopID, params)
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 	if resp.Code != 200 || resp.Data.Entry.StopID == "" {
-		return mcp.NewToolResultText("No schedule data found for this stop."), nil
+		return toResult(textResult("No schedule data found for this stop.")), nil
 	}
 
-	return mcp.NewToolResultText(formatStopSchedule(stopID, resp.Data.Entry)), nil
+	return toResult(dataResult("", stopScheduleResponse(stopID, resp.Data.Entry))), nil
 }
 
-func formatStopSchedule(stopID string, entry client.ScheduleForStop) string {
+func stopScheduleResponse(stopID string, entry client.ScheduleForStop) StopScheduleResponse {
 	dateMs := entry.Date
 	dateStr := ""
 	if dateMs > 0 {
@@ -276,19 +271,18 @@ func formatStopSchedule(stopID string, entry client.ScheduleForStop) string {
 		out.Routes = append(out.Routes, rs)
 	}
 
-	b, _ := json.MarshalIndent(out, "", "  ")
-	return string(b)
+	return out
 }
 
 func (h *Handler) getStopIDsForAgency(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	agencyID, err := entityIDArgument(req, "agency_id")
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 
-	resp, err := h.client.StopIDsForAgency(agencyID)
+	resp, err := h.client.StopIDsForAgency(ctx, agencyID)
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 	ids := StopIDsResponse(append([]string(nil), resp.Data.List...))
 
@@ -298,6 +292,5 @@ func (h *Handler) getStopIDsForAgency(ctx context.Context, req mcp.CallToolReque
 		note = fmt.Sprintf(" (showing 100 of %d)", total)
 		ids = ids[:100]
 	}
-	out, _ := json.MarshalIndent(ids, "", "  ")
-	return mcp.NewToolResultText(fmt.Sprintf("Stop IDs for agency %s (%d shown%s):\n%s", agencyID, len(ids), note, out)), nil
+	return toResult(dataResult(fmt.Sprintf("Stop IDs for agency %s (%d shown%s):\n", agencyID, len(ids), note), ids)), nil
 }

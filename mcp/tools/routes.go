@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/url"
 	"oba-mcp/client"
@@ -104,29 +103,28 @@ func routeFromDTO(route client.Route) RouteResponse {
 func (h *Handler) getRoute(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	routeID, err := entityIDArgument(req, "route_id")
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 
-	resp, err := h.client.GetRoute(routeID)
+	resp, err := h.client.GetRoute(ctx, routeID)
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 	if resp.Code != 200 || resp.Data.Entry.ID == "" {
-		return mcp.NewToolResultText(fmt.Sprintf("No route found with ID %q.", routeID)), nil
+		return toResult(textResult(fmt.Sprintf("No route found with ID %q.", routeID))), nil
 	}
 
-	out, _ := json.MarshalIndent(routeFromDTO(resp.Data.Entry), "", "  ")
-	return mcp.NewToolResultText(fmt.Sprintf("Route %s:\n%s", routeID, out)), nil
+	return toResult(dataResult(fmt.Sprintf("Route %s:\n", routeID), routeFromDTO(resp.Data.Entry))), nil
 }
 
 func (h *Handler) searchRoutes(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	query, err := searchArgument(req)
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 	maxCount, err := optionalLimit(req, "max_count", 5, 20)
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 
 	params := url.Values{
@@ -134,13 +132,13 @@ func (h *Handler) searchRoutes(ctx context.Context, req mcp.CallToolRequest) (*m
 		"maxCount": {fmt.Sprintf("%d", maxCount)},
 	}
 
-	resp, err := h.client.SearchRoutes(params)
+	resp, err := h.client.SearchRoutes(ctx, params)
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 	list := resp.Data.List
 	if len(list) == 0 {
-		return mcp.NewToolResultText(fmt.Sprintf("No routes found matching %q.", query)), nil
+		return toResult(textResult(fmt.Sprintf("No routes found matching %q.", query))), nil
 	}
 
 	results := make([]RouteResponse, 0, len(list))
@@ -151,19 +149,18 @@ func (h *Handler) searchRoutes(ctx context.Context, req mcp.CallToolRequest) (*m
 		results = results[:maxCount]
 	}
 
-	out, _ := json.MarshalIndent(results, "", "  ")
-	return mcp.NewToolResultText(fmt.Sprintf("Found %d routes matching %q:\n%s", len(results), query, out)), nil
+	return toResult(dataResult(fmt.Sprintf("Found %d routes matching %q:\n", len(results), query), results)), nil
 }
 
 func (h *Handler) getRoutesForAgency(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	agencyID, err := entityIDArgument(req, "agency_id")
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 
-	resp, err := h.client.RoutesForAgency(agencyID)
+	resp, err := h.client.RoutesForAgency(ctx, agencyID)
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 	list := resp.Data.List
 	results := make([]RouteResponse, 0, len(list))
@@ -177,37 +174,36 @@ func (h *Handler) getRoutesForAgency(ctx context.Context, req mcp.CallToolReques
 		note = fmt.Sprintf(" (showing 30 of %d — search by name for a specific route)", total)
 		results = results[:30]
 	}
-	out, _ := json.MarshalIndent(results, "", "  ")
-	return mcp.NewToolResultText(fmt.Sprintf("Routes for agency %s (%d shown%s):\n%s", agencyID, len(results), note, out)), nil
+	return toResult(dataResult(fmt.Sprintf("Routes for agency %s (%d shown%s):\n", agencyID, len(results), note), results)), nil
 }
 
 func (h *Handler) getRoutesForLocation(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	lat, lon, err := requiredCoordinates(req)
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 	radius, err := optionalRadius(req, 500, 5_000)
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 	latSpan, hasLatSpan, err := optionalSpan(req, "lat_span")
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 	lonSpan, hasLonSpan, err := optionalSpan(req, "lon_span")
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 
 	_, radiusProvided, err := numberArgument(req, "radius", false)
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 	if hasLatSpan != hasLonSpan {
-		return mcp.NewToolResultError("lat_span and lon_span must be provided together"), nil
+		return toResult(errorResult("lat_span and lon_span must be provided together")), nil
 	}
 	if hasLatSpan && radiusProvided {
-		return mcp.NewToolResultError("radius cannot be combined with lat_span and lon_span"), nil
+		return toResult(errorResult("radius cannot be combined with lat_span and lon_span")), nil
 	}
 	params := url.Values{
 		"lat": {fmt.Sprintf("%f", lat)},
@@ -220,13 +216,13 @@ func (h *Handler) getRoutesForLocation(ctx context.Context, req mcp.CallToolRequ
 		params.Set("radius", fmt.Sprintf("%d", radius))
 	}
 
-	resp, err := h.client.RoutesForLocation(params)
+	resp, err := h.client.RoutesForLocation(ctx, params)
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 	list := resp.Data.List
 	if len(list) == 0 {
-		return mcp.NewToolResultText("No routes found near that location."), nil
+		return toResult(textResult("No routes found near that location.")), nil
 	}
 
 	results := make([]RouteResponse, 0, len(list))
@@ -240,23 +236,22 @@ func (h *Handler) getRoutesForLocation(ctx context.Context, req mcp.CallToolRequ
 		note = fmt.Sprintf(" (capped at 20; %d near that location)", total)
 		results = results[:20]
 	}
-	out, _ := json.MarshalIndent(results, "", "  ")
-	return mcp.NewToolResultText(fmt.Sprintf("Found %d routes near (%.4f, %.4f)%s:\n%s", len(results), lat, lon, note, out)), nil
+	return toResult(dataResult(fmt.Sprintf("Found %d routes near (%.4f, %.4f)%s:\n", len(results), lat, lon, note), results)), nil
 }
 
 func (h *Handler) getStopsForRoute(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	routeID, err := entityIDArgument(req, "route_id")
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 
-	resp, err := h.client.StopsForRoute(routeID)
+	resp, err := h.client.StopsForRoute(ctx, routeID)
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 	entry := resp.Data.Entry
 	if resp.Code != 200 || entry.RouteID == "" {
-		return mcp.NewToolResultText("No stops found for this route."), nil
+		return toResult(textResult("No stops found for this route.")), nil
 	}
 
 	stopLookup := map[string]client.Stop{}
@@ -294,40 +289,39 @@ func (h *Handler) getStopsForRoute(ctx context.Context, req mcp.CallToolRequest)
 		}
 	}
 
-	out, _ := json.MarshalIndent(RouteStopsResponse{Directions: groups, Polylines: polylines}, "", "  ")
-	return mcp.NewToolResultText(fmt.Sprintf("Stops for route %s:\n%s", routeID, out)), nil
+	return toResult(dataResult(fmt.Sprintf("Stops for route %s:\n", routeID), RouteStopsResponse{Directions: groups, Polylines: polylines})), nil
 }
 
 func (h *Handler) getTripsForRoute(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	routeID, err := entityIDArgument(req, "route_id")
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 
 	params := url.Values{}
 	if timestamp, present, err := optionalTimestamp(req, "time"); err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	} else if present {
 		params.Set("time", fmt.Sprintf("%d", timestamp))
 	}
 	includeSchedule, err := optionalBool(req, "include_schedule", true)
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 	includeStatus, err := optionalBool(req, "include_status", true)
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 	params.Set("includeSchedule", fmt.Sprintf("%t", includeSchedule))
 	params.Set("includeStatus", fmt.Sprintf("%t", includeStatus))
 
-	resp, err := h.client.TripsForRoute(routeID, params)
+	resp, err := h.client.TripsForRoute(ctx, routeID, params)
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 	list := resp.Data.List
 	if len(list) == 0 {
-		return mcp.NewToolResultText(fmt.Sprintf("No active trips found for route %s.", routeID)), nil
+		return toResult(textResult(fmt.Sprintf("No active trips found for route %s.", routeID))), nil
 	}
 
 	results := make([]RouteTripResponse, 0, len(list))
@@ -353,32 +347,31 @@ func (h *Handler) getTripsForRoute(ctx context.Context, req mcp.CallToolRequest)
 		note = fmt.Sprintf(" (capped at 20; %d active)", total)
 		results = results[:20]
 	}
-	out, _ := json.MarshalIndent(results, "", "  ")
-	return mcp.NewToolResultText(fmt.Sprintf("Active trips for route %s (%d shown%s):\n%s", routeID, len(results), note, out)), nil
+	return toResult(dataResult(fmt.Sprintf("Active trips for route %s (%d shown%s):\n", routeID, len(results), note), results)), nil
 }
 
 func (h *Handler) getScheduleForRoute(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	routeID, err := entityIDArgument(req, "route_id")
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 
 	params := url.Values{}
 	date, err := optionalDate(req)
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 	if date != "" {
 		params.Set("date", date)
 	}
 
-	resp, err := h.client.ScheduleForRoute(routeID, params)
+	resp, err := h.client.ScheduleForRoute(ctx, routeID, params)
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 	entry := resp.Data.Entry
 	if resp.Code != 200 || entry.RouteID == "" {
-		return mcp.NewToolResultText("No schedule data found for this route."), nil
+		return toResult(textResult("No schedule data found for this route.")), nil
 	}
 
 	result := RouteScheduleStructureResponse{RouteID: routeID}
@@ -395,40 +388,37 @@ func (h *Handler) getScheduleForRoute(ctx context.Context, req mcp.CallToolReque
 		result.Directions = append(result.Directions, dir)
 	}
 
-	out, _ := json.MarshalIndent(result, "", "  ")
-	return mcp.NewToolResultText(fmt.Sprintf("Route schedule structure for %s:\n%s\nFor departure times at a specific stop, use get_stop_schedule.", routeID, out)), nil
+	return toResult(dataResultWithSuffix(fmt.Sprintf("Route schedule structure for %s:\n", routeID), result, "\nFor departure times at a specific stop, use get_stop_schedule.")), nil
 }
 
 func (h *Handler) getRouteIDsForAgency(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	agencyID, err := entityIDArgument(req, "agency_id")
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 
-	resp, err := h.client.RouteIDsForAgency(agencyID)
+	resp, err := h.client.RouteIDsForAgency(ctx, agencyID)
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 	ids := RouteIDsResponse(append([]string(nil), resp.Data.List...))
 
-	out, _ := json.MarshalIndent(ids, "", "  ")
-	return mcp.NewToolResultText(fmt.Sprintf("Route IDs for agency %s (%d total):\n%s", agencyID, len(ids), out)), nil
+	return toResult(dataResult(fmt.Sprintf("Route IDs for agency %s (%d total):\n", agencyID, len(ids)), ids)), nil
 }
 
 func (h *Handler) getShape(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	shapeID, err := entityIDArgument(req, "shape_id")
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 
-	resp, err := h.client.GetShape(shapeID)
+	resp, err := h.client.GetShape(ctx, shapeID)
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 	if resp.Code != 200 || resp.Data.Entry.Points == "" {
-		return mcp.NewToolResultText(fmt.Sprintf("No shape found with ID %q.", shapeID)), nil
+		return toResult(textResult(fmt.Sprintf("No shape found with ID %q.", shapeID))), nil
 	}
 
-	out, _ := json.MarshalIndent(ShapeResponse{Points: resp.Data.Entry.Points, Length: resp.Data.Entry.Length}, "", "  ")
-	return mcp.NewToolResultText(fmt.Sprintf("Shape %s:\n%s", shapeID, out)), nil
+	return toResult(dataResult(fmt.Sprintf("Shape %s:\n", shapeID), ShapeResponse{Points: resp.Data.Entry.Points, Length: resp.Data.Entry.Length})), nil
 }

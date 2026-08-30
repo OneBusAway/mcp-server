@@ -19,18 +19,24 @@ UI is `../ui/`.
 ## Layout
 
 ```text
-main.go                 entry point, configuration, logging, transport wiring
+main.go                       entry point, configuration, logging, transport wiring
 client/
-  oba.go                HTTP client, cache, circuit breaker, time helpers
-  api_dtos.go           typed OBA API DTOs and endpoint methods
+  http_client.go              HTTP client, cache, circuit breaker, time helpers
+  api_dtos.go                 typed OBA API DTOs and endpoint methods
 tools/
-  register.go           shared handler and tool registration
-  input.go              shared MCP argument parsing and validation boundary
-  responses.go          named MCP-facing response contracts
-  agencies.go …         domain tool handlers
-  prompts.go            MCP prompts and transit-domain guidance
-validation/             shared argument validation
-cachedb/                sqlc-generated SQLite cache layer
+  register.go                 shared handler and tool registration
+  input.go                    shared MCP argument parsing and validation boundary
+  results.go                  shared MCP result adapter (toResult)
+  responses_agencies.go       agency response contracts
+  responses_arrivals.go       arrival and departure response contracts
+  responses_routes.go         route, shape, and schedule response contracts
+  responses_stops.go          stop and stop-schedule response contracts
+  responses_system.go         system and metadata response contracts
+  responses_trips.go          trip, vehicle, and block response contracts
+  agencies.go …               domain tool handlers
+  prompts.go                  MCP prompts and transit-domain guidance
+validation/                   shared argument validation
+cachedb/                      sqlc-generated SQLite cache layer
 ```
 
 Do not manually edit generated files in `cachedb/`.

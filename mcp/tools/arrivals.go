@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/url"
 	"oba-mcp/client"
@@ -90,37 +89,37 @@ func arrivalResponses(arrivals []client.ArrivalAndDeparture, loc *time.Location)
 func (h *Handler) getArrivalsForStop(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	stopID, err := entityIDArgument(req, "stop_id")
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 
-	loc := h.client.TimezoneFor(client.AgencyIDFromEntityID(stopID))
+	loc := h.client.TimezoneFor(ctx, client.AgencyIDFromEntityID(stopID))
 
 	minutesBefore, err := optionalWindow(req, "minutes_before", 0, 120)
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 	minutesAfter, err := optionalWindow(req, "minutes_after", 30, 120)
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 	params := url.Values{"minutesBefore": {fmt.Sprintf("%d", minutesBefore)}, "minutesAfter": {fmt.Sprintf("%d", minutesAfter)}}
 	if timestamp, present, err := optionalTimestamp(req, "time"); err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	} else if present {
 		params.Set("time", fmt.Sprintf("%d", timestamp))
 	}
 
-	resp, err := h.client.ArrivalsForStop(stopID, params)
+	resp, err := h.client.ArrivalsForStop(ctx, stopID, params)
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 	entry := resp.Data.Entry
 	if resp.Code != 200 || entry.StopID == "" {
-		return mcp.NewToolResultText("No arrival data found for this stop."), nil
+		return toResult(textResult("No arrival data found for this stop.")), nil
 	}
 
 	if len(entry.ArrivalsAndDepartures) == 0 {
-		return mcp.NewToolResultText(fmt.Sprintf("No upcoming arrivals at stop %s.", stopID)), nil
+		return toResult(textResult(fmt.Sprintf("No upcoming arrivals at stop %s.", stopID))), nil
 	}
 
 	results := arrivalResponses(entry.ArrivalsAndDepartures, loc)
@@ -131,67 +130,65 @@ func (h *Handler) getArrivalsForStop(ctx context.Context, req mcp.CallToolReques
 		note = fmt.Sprintf(" (capped at 10; %d in window — pass a shorter minutes_after to see fewer)", total)
 		results = results[:10]
 	}
-	out, _ := json.MarshalIndent(results, "", "  ")
-	return mcp.NewToolResultText(fmt.Sprintf("Arrivals at stop %s (%d shown%s):\n%s", stopID, len(results), note, out)), nil
+	return toResult(dataResult(fmt.Sprintf("Arrivals at stop %s (%d shown%s):\n", stopID, len(results), note), results)), nil
 }
 
 func (h *Handler) getArrivalAndDepartureForStop(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	stopID, err := entityIDArgument(req, "stop_id")
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 	tripID, err := entityIDArgument(req, "trip_id")
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 	serviceDate, err := requiredTimestamp(req, "service_date")
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 
-	loc := h.client.TimezoneFor(client.AgencyIDFromEntityID(stopID))
+	loc := h.client.TimezoneFor(ctx, client.AgencyIDFromEntityID(stopID))
 
 	params := url.Values{
 		"tripId":      {tripID},
 		"serviceDate": {fmt.Sprintf("%d", serviceDate)},
 	}
 	if vehicleID, err := optionalEntityID(req, "vehicle_id"); err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	} else if vehicleID != "" {
 		params.Set("vehicleId", vehicleID)
 	}
 
-	resp, err := h.client.ArrivalForStop(stopID, params)
+	resp, err := h.client.ArrivalForStop(ctx, stopID, params)
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 	entry := resp.Data.Entry
 	if resp.Code != 200 || entry.TripID == "" {
-		return mcp.NewToolResultText("No arrival found for that trip at this stop."), nil
+		return toResult(textResult("No arrival found for that trip at this stop.")), nil
 	}
 
 	ar := arrivalResponse(entry, loc)
 
-	out, _ := json.MarshalIndent(ar, "", "  ")
-	return mcp.NewToolResultText(fmt.Sprintf("Arrival for trip %s at stop %s:\n%s", tripID, stopID, out)), nil
+	return toResult(dataResult(fmt.Sprintf("Arrival for trip %s at stop %s:\n", tripID, stopID), ar)), nil
 }
 
 func (h *Handler) getArrivalsForLocation(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	lat, lon, err := requiredCoordinates(req)
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 	radius, err := optionalRadius(req, 500, 5_000)
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 	minutesBefore, err := optionalWindow(req, "minutes_before", 0, 120)
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 	minutesAfter, err := optionalWindow(req, "minutes_after", 35, 120)
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 
 	params := url.Values{
@@ -203,28 +200,28 @@ func (h *Handler) getArrivalsForLocation(ctx context.Context, req mcp.CallToolRe
 		"minutesAfter":  {fmt.Sprintf("%d", minutesAfter)},
 	}
 	if timestamp, present, err := optionalTimestamp(req, "time"); err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	} else if present {
 		params.Set("time", fmt.Sprintf("%d", timestamp))
 	}
 
-	resp, err := h.client.ArrivalsForLocation(params)
+	resp, err := h.client.ArrivalsForLocation(ctx, params)
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 	entry := resp.Data.Entry
 	if resp.Code != 200 {
-		return mcp.NewToolResultText("No arrival data found near that location."), nil
+		return toResult(textResult("No arrival data found near that location.")), nil
 	}
 
 	if len(entry.ArrivalsAndDepartures) == 0 {
-		return mcp.NewToolResultText("No upcoming arrivals near that location."), nil
+		return toResult(textResult("No upcoming arrivals near that location.")), nil
 	}
 
-	var loc = h.client.TimezoneFor("")
+	var loc = h.client.TimezoneFor(ctx, "")
 	for _, arrival := range entry.ArrivalsAndDepartures {
 		if agencyID := client.AgencyIDFromEntityID(arrival.RouteID); agencyID != "" {
-			loc = h.client.TimezoneFor(agencyID)
+			loc = h.client.TimezoneFor(ctx, agencyID)
 			break
 		}
 	}
@@ -233,6 +230,5 @@ func (h *Handler) getArrivalsForLocation(ctx context.Context, req mcp.CallToolRe
 		results = results[:10]
 	}
 
-	out, _ := json.MarshalIndent(results, "", "  ")
-	return mcp.NewToolResultText(fmt.Sprintf("Arrivals near (%.4f, %.4f) — %d shown:\n%s", lat, lon, len(results), out)), nil
+	return toResult(dataResult(fmt.Sprintf("Arrivals near (%.4f, %.4f) — %d shown:\n", lat, lon, len(results)), results)), nil
 }

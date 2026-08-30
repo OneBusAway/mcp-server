@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/url"
 	"oba-mcp/client"
@@ -129,101 +128,98 @@ func vehicleStatusResponse(vehicle client.VehicleStatus) VehicleResponse {
 func (h *Handler) getTrip(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	tripID, err := entityIDArgument(req, "trip_id")
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 
-	resp, err := h.client.GetTrip(tripID)
+	resp, err := h.client.GetTrip(ctx, tripID)
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 	entry := resp.Data.Entry
 	if resp.Code != 200 || entry.ID == "" {
-		return mcp.NewToolResultText(fmt.Sprintf("No trip found with ID %q.", tripID)), nil
+		return toResult(textResult(fmt.Sprintf("No trip found with ID %q.", tripID))), nil
 	}
 
-	out, _ := json.MarshalIndent(TripResponse{ID: entry.ID, RouteID: entry.RouteID, Headsign: entry.TripHeadsign, DirectionID: entry.DirectionID, ServiceID: entry.ServiceID}, "", "  ")
-	return mcp.NewToolResultText(fmt.Sprintf("Trip %s:\n%s", tripID, out)), nil
+	return toResult(dataResult(fmt.Sprintf("Trip %s:\n", tripID), TripResponse{ID: entry.ID, RouteID: entry.RouteID, Headsign: entry.TripHeadsign, DirectionID: entry.DirectionID, ServiceID: entry.ServiceID})), nil
 }
 
 func (h *Handler) getTripDetails(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	tripID, err := entityIDArgument(req, "trip_id")
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 
 	params := url.Values{}
 	if timestamp, present, err := optionalTimestamp(req, "time"); err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	} else if present {
 		params.Set("time", fmt.Sprintf("%d", timestamp))
 	}
 	includeSchedule, err := optionalBool(req, "include_schedule", true)
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 	includeStatus, err := optionalBool(req, "include_status", true)
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 	params.Set("includeSchedule", fmt.Sprintf("%t", includeSchedule))
 	params.Set("includeStatus", fmt.Sprintf("%t", includeStatus))
 
-	resp, err := h.client.TripDetails(tripID, params)
+	resp, err := h.client.TripDetails(ctx, tripID, params)
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 	entry := resp.Data.Entry
 	if resp.Code != 200 || entry.TripID == "" {
-		return mcp.NewToolResultText("No trip found with that ID."), nil
+		return toResult(textResult("No trip found with that ID.")), nil
 	}
 
 	detail := tripDetailsResponse(entry, resp.Data.References.Trips, tripID)
 
-	out, _ := json.MarshalIndent(detail, "", "  ")
-	return mcp.NewToolResultText(fmt.Sprintf("Trip details for %s:\n%s", tripID, out)), nil
+	return toResult(dataResult(fmt.Sprintf("Trip details for %s:\n", tripID), detail)), nil
 }
 
 func (h *Handler) getTripForVehicle(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	vehicleID, err := entityIDArgument(req, "vehicle_id")
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 
 	params := url.Values{}
 	if timestamp, present, err := optionalTimestamp(req, "time"); err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	} else if present {
 		params.Set("time", fmt.Sprintf("%d", timestamp))
 	}
 
-	resp, err := h.client.TripForVehicle(vehicleID, params)
+	resp, err := h.client.TripForVehicle(ctx, vehicleID, params)
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 	entry := resp.Data.Entry
 	if resp.Code != 200 || entry.TripID == "" {
-		return mcp.NewToolResultText(fmt.Sprintf("No active trip found for vehicle %q.", vehicleID)), nil
+		return toResult(textResult(fmt.Sprintf("No active trip found for vehicle %q.", vehicleID))), nil
 	}
 
 	v := vehicleResponse(entry, resp.Data.References.Trips)
 
-	out, _ := json.MarshalIndent(v, "", "  ")
-	return mcp.NewToolResultText(fmt.Sprintf("Current trip for vehicle %s:\n%s", vehicleID, out)), nil
+	return toResult(dataResult(fmt.Sprintf("Current trip for vehicle %s:\n", vehicleID), v)), nil
 }
 
 func (h *Handler) getVehiclesForAgency(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	agencyID, err := entityIDArgument(req, "agency_id")
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 
-	resp, err := h.client.VehiclesForAgency(agencyID)
+	resp, err := h.client.VehiclesForAgency(ctx, agencyID)
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 	list := resp.Data.List
 	if len(list) == 0 {
-		return mcp.NewToolResultText(fmt.Sprintf("No active vehicles for agency %s.", agencyID)), nil
+		return toResult(textResult(fmt.Sprintf("No active vehicles for agency %s.", agencyID))), nil
 	}
 
 	results := make([]VehicleResponse, 0, len(list))
@@ -237,18 +233,17 @@ func (h *Handler) getVehiclesForAgency(ctx context.Context, req mcp.CallToolRequ
 		note = fmt.Sprintf(" (capped at 50; %d active)", total)
 		results = results[:50]
 	}
-	out, _ := json.MarshalIndent(results, "", "  ")
-	return mcp.NewToolResultText(fmt.Sprintf("Active vehicles for agency %s (%d shown%s):\n%s", agencyID, len(results), note, out)), nil
+	return toResult(dataResult(fmt.Sprintf("Active vehicles for agency %s (%d shown%s):\n", agencyID, len(results), note), results)), nil
 }
 
 func (h *Handler) getTripsForLocation(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	lat, lon, err := requiredCoordinates(req)
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 	radius, err := optionalRadius(req, 500, 5_000)
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 
 	params := url.Values{
@@ -257,13 +252,13 @@ func (h *Handler) getTripsForLocation(ctx context.Context, req mcp.CallToolReque
 		"radius": {fmt.Sprintf("%d", radius)},
 	}
 
-	resp, err := h.client.TripsForLocation(params)
+	resp, err := h.client.TripsForLocation(ctx, params)
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 	list := resp.Data.List
 	if len(list) == 0 {
-		return mcp.NewToolResultText("No active trips found near that location."), nil
+		return toResult(textResult("No active trips found near that location.")), nil
 	}
 
 	results := make([]VehicleResponse, 0, len(list))
@@ -277,23 +272,22 @@ func (h *Handler) getTripsForLocation(ctx context.Context, req mcp.CallToolReque
 		note = fmt.Sprintf(" (capped at 20; %d in area)", total)
 		results = results[:20]
 	}
-	out, _ := json.MarshalIndent(results, "", "  ")
-	return mcp.NewToolResultText(fmt.Sprintf("Active trips near (%.4f, %.4f) — %d shown%s:\n%s", lat, lon, len(results), note, out)), nil
+	return toResult(dataResult(fmt.Sprintf("Active trips near (%.4f, %.4f) — %d shown%s:\n", lat, lon, len(results), note), results)), nil
 }
 
 func (h *Handler) getBlock(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	blockID, err := entityIDArgument(req, "block_id")
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 
-	resp, err := h.client.GetBlock(blockID)
+	resp, err := h.client.GetBlock(ctx, blockID)
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 	entry := resp.Data.Entry
 	if resp.Code != 200 || entry.ID == "" {
-		return mcp.NewToolResultText(fmt.Sprintf("No block found with ID %q.", blockID)), nil
+		return toResult(textResult(fmt.Sprintf("No block found with ID %q.", blockID))), nil
 	}
 
 	output := BlockResponse{ID: entry.ID}
@@ -309,6 +303,5 @@ func (h *Handler) getBlock(ctx context.Context, req mcp.CallToolRequest) (*mcp.C
 		}
 		output.Configurations = append(output.Configurations, response)
 	}
-	out, _ := json.MarshalIndent(output, "", "  ")
-	return mcp.NewToolResultText(fmt.Sprintf("Block %s configurations:\n%s", blockID, out)), nil
+	return toResult(dataResult(fmt.Sprintf("Block %s configurations:\n", blockID), output)), nil
 }

@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"oba-mcp/client"
 
@@ -28,15 +27,15 @@ func (h *Handler) registerAgencyTools(s *server.MCPServer) {
 }
 
 func (h *Handler) getAgencies(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	resp, err := h.client.GetAgencies()
+	resp, err := h.client.GetAgencies(ctx)
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 	if resp.Code != 200 {
-		return mcp.NewToolResultError(resp.Text), nil
+		return toResult(errorResult(resp.Text)), nil
 	}
 	if len(resp.Data.List) == 0 {
-		return mcp.NewToolResultText("No agencies found."), nil
+		return toResult(textResult("No agencies found.")), nil
 	}
 
 	// Agency details (name, url, etc.) live in references, keyed by id
@@ -55,30 +54,28 @@ func (h *Handler) getAgencies(ctx context.Context, req mcp.CallToolRequest) (*mc
 		})
 	}
 
-	out, _ := json.MarshalIndent(results, "", "  ")
-	return mcp.NewToolResultText(fmt.Sprintf("Found %d agencies:\n%s", len(results), out)), nil
+	return toResult(dataResult(fmt.Sprintf("Found %d agencies:\n", len(results)), results)), nil
 }
 
 func (h *Handler) getAgency(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	agencyID, err := entityIDArgument(req, "agency_id")
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 
-	resp, err := h.client.GetAgency(agencyID)
+	resp, err := h.client.GetAgency(ctx, agencyID)
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 	if resp.Code != 200 {
-		return mcp.NewToolResultError(resp.Text), nil
+		return toResult(errorResult(resp.Text)), nil
 	}
 	entry := resp.Data.Entry
 	if entry.ID == "" {
-		return mcp.NewToolResultText(fmt.Sprintf("No agency found with ID %q.", agencyID)), nil
+		return toResult(textResult(fmt.Sprintf("No agency found with ID %q.", agencyID))), nil
 	}
 
-	out, _ := json.MarshalIndent(AgencyResponse{
+	return toResult(dataResult(fmt.Sprintf("Agency %s:\n", agencyID), AgencyResponse{
 		ID: entry.ID, Name: entry.Name, URL: entry.URL, Phone: entry.Phone, Timezone: entry.Timezone,
-	}, "", "  ")
-	return mcp.NewToolResultText(fmt.Sprintf("Agency %s:\n%s", agencyID, out)), nil
+	})), nil
 }

@@ -2,6 +2,7 @@ package client
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"net/http"
 	"testing"
@@ -30,7 +31,7 @@ func TestGetStopDecodesTypedEnvelope(t *testing.T) {
 			t.Fatal("API key was not supplied")
 		}
 	})
-	response, err := oba.GetStop("unitrans_1")
+	response, err := oba.GetStop(context.Background(), "unitrans_1")
 	if err != nil {
 		t.Fatalf("GetStop returned error: %v", err)
 	}
@@ -44,7 +45,7 @@ func TestGetStopDecodesTypedEnvelope(t *testing.T) {
 
 func TestArrivalsForStopDecodesNestedTypedFields(t *testing.T) {
 	oba := testClient(t, `{"code":200,"data":{"entry":{"stopId":"unitrans_1","arrivalsAndDepartures":[{"tripId":"unitrans_trip","routeId":"unitrans_A","predicted":true,"scheduledArrivalTime":1000,"tripStatus":{"vehicleId":"unitrans_bus","position":{"lat":38.5,"lon":-121.7}}}]}}}`, func(*http.Request) {})
-	response, err := oba.ArrivalsForStop("unitrans_1", nil)
+	response, err := oba.ArrivalsForStop(context.Background(), "unitrans_1", nil)
 	if err != nil {
 		t.Fatalf("ArrivalsForStop returned error: %v", err)
 	}

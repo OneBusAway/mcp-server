@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/url"
 	"oba-mcp/client"
@@ -24,22 +23,22 @@ func (h *Handler) registerOverviewTools(s *server.MCPServer) {
 func (h *Handler) getStopOverview(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	stopID, err := entityIDArgument(req, "stop_id")
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 
-	loc := h.client.TimezoneFor(client.AgencyIDFromEntityID(stopID))
+	loc := h.client.TimezoneFor(ctx, client.AgencyIDFromEntityID(stopID))
 
 	params := url.Values{
 		"minutesBefore": {"0"},
 		"minutesAfter":  {"30"},
 	}
-	resp, err := h.client.ArrivalsForStop(stopID, params)
+	resp, err := h.client.ArrivalsForStop(ctx, stopID, params)
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 	entry := resp.Data.Entry
 	if resp.Code != 200 || entry.StopID == "" {
-		return mcp.NewToolResultText(fmt.Sprintf("No data found for stop %s.", stopID)), nil
+		return toResult(textResult(fmt.Sprintf("No data found for stop %s.", stopID))), nil
 	}
 
 	overview := StopOverviewResponse{StopID: stopID}
@@ -66,6 +65,5 @@ func (h *Handler) getStopOverview(ctx context.Context, req mcp.CallToolRequest) 
 		overview.Next = append(overview.Next, arrivalResponse(arrival, loc))
 	}
 
-	out, _ := json.MarshalIndent(overview, "", "  ")
-	return mcp.NewToolResultText(fmt.Sprintf("Overview for stop %s:\n%s", stopID, out)), nil
+	return toResult(dataResult(fmt.Sprintf("Overview for stop %s:\n", stopID), overview)), nil
 }

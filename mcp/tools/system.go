@@ -2,8 +2,6 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -27,13 +25,13 @@ func (h *Handler) registerSystemTools(s *server.MCPServer) {
 }
 
 func (h *Handler) getCurrentTime(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	resp, err := h.client.GetCurrentTime()
+	resp, err := h.client.GetCurrentTime(ctx)
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 	entry := resp.Data.Entry
 	if resp.Code != 200 || entry.Time == 0 {
-		return mcp.NewToolResultText("Could not retrieve server time."), nil
+		return toResult(textResult("Could not retrieve server time.")), nil
 	}
 
 	ms := entry.Time
@@ -42,15 +40,14 @@ func (h *Handler) getCurrentTime(ctx context.Context, req mcp.CallToolRequest) (
 		readable = time.UnixMilli(int64(ms)).Format(time.RFC3339)
 	}
 
-	out, _ := json.MarshalIndent(CurrentTimeResponse{Time: readable}, "", "  ")
-	return mcp.NewToolResultText(fmt.Sprintf("Current server time:\n%s", out)), nil
+	return toResult(dataResult("Current server time:\n", CurrentTimeResponse{Time: readable})), nil
 }
 
 func (h *Handler) getMetadata(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	// Metadata lives at /api/v2/metadata.json (not the standard envelope)
-	metadata, err := h.client.GetMetadata()
+	metadata, err := h.client.GetMetadata(ctx)
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return toResult(errorResult(err.Error())), nil
 	}
 
 	output := MetadataResponse{RealtimeFeeds: make(map[string]string, len(metadata.RealtimeFeeds))}
@@ -60,6 +57,5 @@ func (h *Handler) getMetadata(ctx context.Context, req mcp.CallToolRequest) (*mc
 	for name, updated := range metadata.RealtimeFeeds {
 		output.RealtimeFeeds[name] = updated.Format(time.RFC3339)
 	}
-	out, _ := json.MarshalIndent(output, "", "  ")
-	return mcp.NewToolResultText(fmt.Sprintf("Server metadata:\n%s", out)), nil
+	return toResult(dataResult("Server metadata:\n", output)), nil
 }

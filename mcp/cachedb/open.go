@@ -5,10 +5,13 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	_ "modernc.org/sqlite"
 )
+
+const maxCacheDatabaseBytes = 32 << 20
 
 // Open opens (or creates) the SQLite cache database at path.
 // It applies the schema and prunes already-expired entries on startup.
@@ -24,6 +27,13 @@ func Open(path string) (*Queries, *sql.DB, error) {
 	db.SetMaxOpenConns(1) // SQLite: one writer at a time
 
 	if _, err := db.Exec(schema); err != nil {
+		db.Close()
+		return nil, nil, err
+	}
+	// The cache is disposable. Cap its database file so a misconfigured or busy
+	// service cannot consume unbounded disk; expired rows are pruned on open and
+	// before static cache writes.
+	if _, err := db.Exec("PRAGMA max_page_count = " + strconv.Itoa(maxCacheDatabaseBytes/4096)); err != nil {
 		db.Close()
 		return nil, nil, err
 	}
