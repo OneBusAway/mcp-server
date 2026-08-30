@@ -11,7 +11,7 @@ import {
 	createMapState,
 	addMarkers, addDirections, addVehicles, addRouteId,
 	addRouteData, addRouteToMap,
-	toMapMarkers, routeStopMarkers, markCurrentStop, decodePolyline,
+	toMapMarkers, routeStopMarkers, routeDirections, markCurrentStop,
 } from './map.js';
 
 export { createMapState };
@@ -117,36 +117,43 @@ async function _handleArrivalsForStop(input, d, list, controller, sse, mapState,
 		_e.arrivalStopIds.add(input.stop_id);
 	}
 
-	const predictedArrivals = arrivals.filter((a) => a.predicted && a.trip_id);
-	const vehicledArrivals = predictedArrivals.filter((a) => a.vehicle_lat && a.vehicle_lon);
-	if (!predictedArrivals.length) return;
-
-	const routeIds = [...new Set(predictedArrivals.map((a) => a.route_id).filter(Boolean))].slice(0, 3);
-	const [stopRes, ...routeResults] = await Promise.allSettled([
+	// Scheduled arrivals are still useful map context: show the stop and its
+	// routes even when the agency has not supplied real-time predictions.
+	const realtimeArrivals = arrivals.filter((a) => a.predicted && a.trip_id);
+	const vehicledArrivals = realtimeArrivals.filter((a) => a.vehicle_lat != null && a.vehicle_lon != null);
+	const routeIds = [...new Set(arrivals.map((a) => a.route_id).filter(Boolean))].slice(0, 3);
+	const realtimeTripIds = [...new Set(realtimeArrivals.map((a) => a.trip_id))].slice(0, 3);
+	const tripIDsForPosition = [...new Set(realtimeArrivals
+		.filter((arrival) => arrival.vehicle_lat == null || arrival.vehicle_lon == null)
+		.map((arrival) => arrival.trip_id))].slice(0, 3);
+	const lookupResults = await Promise.allSettled([
 		mcp.callTool('get_stop', { stop_id: input.stop_id }),
 		...routeIds.map((route_id) => mcp.callTool('get_stops_for_route', { route_id })),
+		...tripIDsForPosition.map((trip_id) => mcp.callTool('get_trip_details', { trip_id, include_schedule: false })),
 	]);
+	const [stopRes] = lookupResults;
+	const routeResults = lookupResults.slice(1, 1 + routeIds.length);
+	const tripResults = lookupResults.slice(1 + routeIds.length);
 
 	let stopLat = null, stopLon = null;
 	if (stopRes.status === 'fulfilled') {
 		const stopData = unwrap(stopRes.value);
-		if (stopData?.lat) { stopLat = stopData.lat; stopLon = stopData.lon; }
+		if (stopData?.lat != null && stopData?.lon != null) {
+			stopLat = stopData.lat;
+			stopLon = stopData.lon;
+		}
 	}
 
-	const routeNames = new Map(predictedArrivals.map((a) => [a.route_id, a.route_name ?? a.route_id]));
+	const routeNames = new Map(arrivals.map((a) => [a.route_id, a.route_name ?? a.route_id]));
 	const directions = routeResults.flatMap((routeRes, index) => {
 		const routeData = routeRes.status === 'fulfilled' ? unwrap(routeRes.value) : null;
 		addMarkers(mapState, routeStopMarkers(routeData));
-		const polylines = routeData?.polylines ?? [];
 		const routeName = routeNames.get(routeIds[index]) ?? routeIds[index];
-		return polylines.flatMap((polyline) => {
-			const coordinates = decodePolyline(polyline.encoded_polyline ?? '');
-			return coordinates.length >= 2 ? [{ direction: routeName, coordinates }] : [];
-		});
+		return routeDirections(routeData, routeName);
 	});
 
 	const trip_info = {};
-	for (const a of predictedArrivals) {
+	for (const a of realtimeArrivals) {
 		if (a.trip_id) trip_info[a.trip_id] = { route_short_name: a.route_name, headsign: a.headsign };
 	}
 
@@ -161,17 +168,34 @@ async function _handleArrivalsForStop(input, d, list, controller, sse, mapState,
 		headsign: a.headsign, stops_away: a.number_of_stops_away,
 		bearing: a.vehicle_bearing ?? null,
 	})));
+	const arrivalByTripID = new Map(realtimeArrivals.map((arrival) => [arrival.trip_id, arrival]));
+	addVehicles(mapState, tripResults.flatMap((tripRes, index) => {
+		if (tripRes.status !== 'fulfilled') return [];
+		const detail = unwrap(tripRes.value);
+		if (detail?.lat == null || detail?.lon == null) return [];
+		const arrival = arrivalByTripID.get(tripIDsForPosition[index]);
+		return [{
+			lat: detail.lat, lon: detail.lon,
+			vehicle_id: detail.vehicle_id ?? arrival?.vehicle_id,
+			trip_id: detail.trip_id ?? tripIDsForPosition[index],
+			route_id: detail.route_id ?? arrival?.route_id,
+			route_short_name: arrival?.route_name,
+			headsign: arrival?.headsign,
+			stops_away: arrival?.number_of_stops_away,
+			bearing: detail.bearing ?? arrival?.vehicle_bearing ?? null,
+		}];
+	}));
 
-	for (const tripId of predictedArrivals.map((a) => a.trip_id).filter(Boolean)) {
+	for (const tripId of realtimeTripIds) {
 		if (!mapState.tripIds.has(tripId)) {
 			mapState.tripIds.add(tripId);
 			mapState.vehicleTripIds.push(tripId);
 		}
 	}
 	Object.assign(mapState.tripInfo, trip_info);
-	for (const arrival of predictedArrivals) {
-		addRouteId(mapState, arrival.route_id);
-		_e.routeIds.add(arrival.route_id);
+	for (const routeId of routeIds) {
+		addRouteId(mapState, routeId);
+		_e.routeIds.add(routeId);
 	}
 	_e.stopIds.add(input.stop_id);
 }

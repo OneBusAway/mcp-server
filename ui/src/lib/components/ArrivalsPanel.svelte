@@ -13,25 +13,38 @@
 	let loading  = $state(false);
 	let error    = $state('');
 	let lastAt   = $state(initialArrivals.length ? new Date() : null);
+	const hasRealtimeData = $derived(arrivals.some((arrival) => arrival.predicted));
 	const stopLabel = $derived(
 		stopName && stopId && stopName !== stopId
 			? `${stopName} · ${stopId}`
 			: stopName || (stopId ? `Stop ${stopId}` : 'Select a stop')
 	);
 
-	function preserveTrackedArrivals(nextArrivals) {
+	function ensureTrackedInArrivals(nextArrivals) {
 		const tracked = tracking.trackers.filter((item) => item.stop_id === stopId);
-		const trackedIds = new Set(tracked.map((item) => item.trip_id));
-		// Put tracked arrivals first so the panel's ten-row limit never hides them.
-		const merged = [
-			...nextArrivals.filter((arrival) => trackedIds.has(arrival.trip_id)),
-			...nextArrivals.filter((arrival) => !trackedIds.has(arrival.trip_id)),
-		];
+		const result = [...nextArrivals];
 		for (const tracker of tracked) {
-			if (merged.some((arrival) => arrival.trip_id === tracker.trip_id)) continue;
+			const idx = result.findIndex((arrival) => arrival.trip_id === tracker.trip_id);
+			if (idx !== -1) {
+				// Trip is in the API response. If prediction was dropped (bus just
+				// passed the stop — OBA stops sending GPS), restore the tracker's
+				// last-known live data so the row doesn't flip back to "Scheduled".
+				const existing = result[idx];
+				if (!existing.predicted && tracker.predicted_arrival) {
+					result[idx] = {
+						...existing,
+						predicted: true,
+						predicted_arrival: tracker.predicted_arrival,
+						predicted_arrival_display: tracker.predicted_arrival,
+						deviation_seconds: tracker.deviation_seconds ?? existing.deviation_seconds ?? 0,
+						deviation_label: tracker.deviation_label ?? existing.deviation_label ?? null,
+					};
+				}
+				continue;
+			}
 			// OBA can briefly omit a tracked trip between updates. Keep a lightweight
 			// row so refreshing the panel never makes the user's tracker disappear.
-			merged.push({
+			result.push({
 				trip_id: tracker.trip_id,
 				service_date: tracker.service_date,
 				service_date_ms: tracker.service_date,
@@ -44,18 +57,23 @@
 				scheduled_arrival: tracker.predicted_arrival,
 				scheduled_arrival_display: tracker.predicted_arrival,
 				number_of_stops_away: tracker.stops_away,
+				deviation_seconds: tracker.deviation_seconds ?? 0,
+				deviation_label: tracker.deviation_label ?? null,
 			});
 		}
-		return merged;
+		return result;
 	}
+
+	const trackedArrivals    = $derived(arrivals.filter(a => !!trackedArrival(a)));
+	const nonTrackedArrivals = $derived(arrivals.filter(a => !trackedArrival(a)).slice(0, 10));
 
 	async function load() {
 		if (!stopId) return;
 		loading = true;
 		error   = '';
 		try {
-			const result = await callTool('get_arrivals_for_stop', { stop_id: stopId, minutes_after: 60 });
-			arrivals = preserveTrackedArrivals(normalizeArrivals(items(result))).slice(0, 10);
+			const result = await callTool('get_arrivals_for_stop', { stop_id: stopId, minutes_before: 10, minutes_after: 60 });
+			arrivals = ensureTrackedInArrivals(normalizeArrivals(items(result)));
 			lastAt   = new Date();
 		} catch (e) {
 			error = e.message;
@@ -100,14 +118,24 @@
 		load();
 	});
 
-	// Live updates from tracking store (fires every 30s when user is tracking this stop)
+	// Live updates from tracking store (fires when tracking polls this stop)
 	$effect(() => {
 		if (!stopId) return;
 		const liveData = tracking.stopArrivals[stopId];
 		if (Array.isArray(liveData) && liveData.length) {
-			arrivals = preserveTrackedArrivals(liveData);
+			arrivals = ensureTrackedInArrivals(liveData);
 			lastAt = new Date();
 		}
+	});
+
+	// Periodic auto-refresh for live panels only. Chat history cards (those
+	// mounted with initialArrivals) skip this interval — they receive updates
+	// via tracking.stopArrivals when a trip is being tracked, and don't need
+	// their own ongoing MCP requests.
+	$effect(() => {
+		if (!stopId || initialArrivals.length > 0) return;
+		const id = setInterval(() => load(), 30_000);
+		return () => clearInterval(id);
 	});
 </script>
 
@@ -121,6 +149,9 @@
 				<p class="text-xs text-zinc-400 dark:text-zinc-500">
 					Updated {lastAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
 				</p>
+			{/if}
+			{#if arrivals.length && !hasRealtimeData}
+				<p class="text-xs text-amber-700 dark:text-amber-400">No real-time data available</p>
 			{/if}
 		</div>
 		<div class="flex shrink-0 items-center gap-1">
@@ -172,10 +203,26 @@
 			</div>
 		{:else}
 			<div class="divide-y divide-zinc-100 dark:divide-zinc-800/60">
-			{#each arrivals as arrival (arrival.trip_id ?? arrival.route_short_name + arrival.scheduled_arrival)}
+				{#if trackedArrivals.length > 0}
+					<div class="flex items-center gap-1.5 border-b border-amber-100 bg-amber-50 px-3 py-1 dark:border-amber-500/10 dark:bg-amber-500/5">
+						<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/></svg>
+						<span class="text-xs font-semibold text-amber-700 dark:text-amber-400">Tracking</span>
+					</div>
+					{#each trackedArrivals as arrival (arrival.trip_id)}
+						<ArrivalRow
+							{arrival}
+							trackingActive={true}
+							onToggleTracking={() => toggleArrivalTracking(arrival)}
+						/>
+					{/each}
+					{#if nonTrackedArrivals.length > 0}
+						<div class="px-3 py-1 text-xs text-zinc-400 dark:text-zinc-500">Other arrivals</div>
+					{/if}
+				{/if}
+				{#each nonTrackedArrivals as arrival (arrival.trip_id ?? arrival.route_short_name + arrival.scheduled_arrival)}
 					<ArrivalRow
 						{arrival}
-						trackingActive={!!trackedArrival(arrival)}
+						trackingActive={false}
 						onToggleTracking={() => toggleArrivalTracking(arrival)}
 					/>
 				{/each}

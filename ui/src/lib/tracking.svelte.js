@@ -32,7 +32,8 @@ function createTrackingStore() {
 	 *   route_name: string, headsign: string,
 	 *   stops_away: number | null, predicted_arrival: string,
 	 *   status: 'tracking' | 'approaching' | 'arriving' | 'passed' | 'done',
-	 *   notified_approach: boolean, notified_arrival: boolean
+	 *   notified_approach: boolean, notified_arrival: boolean,
+	 *   passed_at: number | null, deviation_seconds: number | null, deviation_label: string | null
 	 * }>} */
 	let trackers = $state([]);
 
@@ -61,13 +62,24 @@ function createTrackingStore() {
 			status: passed ? 'passed' : 'arriving',
 			predicted_arrival: arrival,
 			notified_arrival: true,
+			// Record when the bus first passed so _poll can expire the tracker after
+			// the 10-minute arrivals lookback window — no immediate auto-remove.
+			...(passed && tracker.passed_at == null ? { passed_at: Date.now() } : {}),
 		});
-		if (!tracker.notified_arrival) setTimeout(() => remove(tracker.id), 90_000);
 	}
 
 	async function _poll(trackerId) {
 		const tracker = trackers.find(t => t.id === trackerId);
 		if (!tracker || tracker.status === 'done') return;
+
+		// Bus already passed: keep the tracker alive (for map highlight + arrivals row)
+		// until the 10-minute arrivals lookback window expires, then remove it.
+		if (tracker.status === 'passed') {
+			if (tracker.passed_at != null && Date.now() - tracker.passed_at >= 10 * 60_000) {
+				remove(tracker.id);
+			}
+			return;
+		}
 
 		try {
 			const result = await callTool('get_arrival_and_departure_for_stop', {
@@ -88,7 +100,27 @@ function createTrackingStore() {
 			const stopsAway = data?.number_of_stops_away;
 			const arrival = data?.predicted_arrival || data?.scheduled_arrival || tracker.predicted_arrival;
 
-			if (typeof stopsAway !== 'number') return;
+			// ETA-based departure: if predicted/scheduled time is >2 min in the past, treat as passed
+			const refMs = (data?.predicted_arrival_ms > 0 ? data.predicted_arrival_ms : 0)
+				|| (data?.scheduled_arrival_ms > 0 ? data.scheduled_arrival_ms : 0);
+			if (refMs > 0 && Date.now() > refMs + 120_000) {
+				_markArrived(tracker, arrival, true);
+				return;
+			}
+
+			const devPatch = {
+				deviation_seconds: data?.deviation_seconds ?? null,
+				deviation_label: data?.deviation_label ?? null,
+			};
+
+			if (typeof stopsAway !== 'number') {
+				// Real-time data came back but stops_away is missing — keep the
+				// tracker alive and update the arrival time so the time shows.
+				if (arrival && arrival !== tracker.predicted_arrival) {
+					_update(trackerId, { predicted_arrival: arrival, ...devPatch });
+				}
+				return;
+			}
 
 			if (stopsAway === 0) {
 				_markArrived(tracker, arrival);
@@ -97,23 +129,32 @@ function createTrackingStore() {
 					`🚌 Route ${tracker.route_name} — 1 stop away`,
 					`${tracker.headsign || ''} approaching ${tracker.stop_name}`
 				);
-				_update(trackerId, { stops_away: 1, status: 'approaching', notified_approach: true, predicted_arrival: arrival });
+				_update(trackerId, { stops_away: 1, status: 'approaching', notified_approach: true, predicted_arrival: arrival, ...devPatch });
 			} else {
-				_update(trackerId, { stops_away: stopsAway, predicted_arrival: arrival });
+				_update(trackerId, { stops_away: stopsAway, predicted_arrival: arrival, ...devPatch });
 			}
 		} catch {}
 	}
 
 	/** Fetch full arrivals for a stop and expose them reactively for live panel/map updates. */
 	async function _pollStop(stop_id) {
+		const prev = stopArrivals[stop_id] ?? [];
+		const now = Date.now();
 		try {
 			const result = await callTool('get_arrivals_for_stop', {
 				stop_id,
 				minutes_before: TRACKING_MINUTES_BEFORE,
 				minutes_after: 60,
 			});
-			const arrivals = normalizeArrivals(items(result));
-			stopArrivals = { ...stopArrivals, [stop_id]: arrivals };
+			const fresh = normalizeArrivals(items(result));
+			const freshIds = new Set(fresh.map(a => a.trip_id));
+			// Keep arrivals from previous response for 1 extra cycle to prevent flicker.
+			// Only carry over non-ghost trips with a future arrival time.
+			const ghosts = prev
+				.filter(a => !a._ghost && !freshIds.has(a.trip_id))
+				.filter(a => (a.predicted_arrival_ms || a.scheduled_arrival_ms || 0) > now)
+				.map(a => ({ ...a, _ghost: true }));
+			stopArrivals = { ...stopArrivals, [stop_id]: [...fresh, ...ghosts] };
 		} catch {}
 	}
 
@@ -151,6 +192,9 @@ function createTrackingStore() {
 					status: 'tracking',
 					notified_approach: false,
 					notified_arrival: false,
+					passed_at: null,
+					deviation_seconds: a.deviation_seconds ?? null,
+					deviation_label: a.deviation_label ?? null,
 				},
 			];
 			added++;

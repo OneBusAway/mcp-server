@@ -56,6 +56,19 @@ export function normalizeArrival(a) {
 	const schedDepDisplay = a.scheduled_departure_display ?? a.scheduled_departure ?? '';
 	const predDepDisplay = a.predicted_departure_display ?? a.predicted_departure ?? '';
 	const serviceDate = a.service_date ?? a.service_date_ms ?? 0;
+
+	const schedMs = a.scheduled_arrival_ms ?? 0;
+	const predMs  = a.predicted_arrival_ms ?? 0;
+	const deviationSecs = a.deviation_seconds !== undefined
+		? a.deviation_seconds
+		: (a.predicted && predMs > 0 && schedMs > 0 ? Math.round((predMs - schedMs) / 1000) : 0);
+	let deviationLabel = a.deviation_label ?? null;
+	if (deviationLabel === null && a.predicted && predMs > 0 && schedMs > 0) {
+		const absMins = Math.floor(Math.abs(deviationSecs) / 60);
+		if (deviationSecs > 60) deviationLabel = `${absMins} min late`;
+		else if (deviationSecs < -60) deviationLabel = `${absMins} min early`;
+	}
+
 	return {
 		...a,
 		route_name: routeName,
@@ -70,6 +83,8 @@ export function normalizeArrival(a) {
 		predicted_departure_display: predDepDisplay,
 		service_date: serviceDate,
 		service_date_ms: a.service_date_ms ?? a.service_date ?? 0,
+		deviation_seconds: deviationSecs,
+		deviation_label: deviationLabel,
 	};
 }
 

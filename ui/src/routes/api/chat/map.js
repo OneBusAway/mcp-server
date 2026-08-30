@@ -56,6 +56,27 @@ export function routeStopMarkers(route) {
 		.map((stop) => ({ id: stop.id, lat: stop.lat, lon: stop.lon, name: stop.name }));
 }
 
+/**
+ * Prefer the agency's actual shape, with an ordered stop-path fallback when
+ * the upstream route does not include encoded polylines.
+ */
+export function routeDirections(route, routeName) {
+	const shapePaths = (route?.polylines ?? []).flatMap((polyline) => {
+		const coordinates = decodePolyline(polyline.encoded_polyline ?? '');
+		return coordinates.length >= 2 ? [{ direction: routeName, coordinates }] : [];
+	});
+	if (shapePaths.length) return shapePaths;
+
+	return (route?.directions ?? []).flatMap((direction) => {
+		const coordinates = (direction.stops ?? [])
+			.filter((stop) => stop?.lat != null && stop?.lon != null)
+			.map((stop) => [stop.lon, stop.lat]);
+		return coordinates.length >= 2
+			? [{ direction: direction.direction || routeName, coordinates }]
+			: [];
+	});
+}
+
 /** Mark the single marker in a list as the current/focused stop. */
 export function markCurrentStop(markers) {
 	if (markers.length === 1) markers[0].is_current = true;
@@ -131,10 +152,7 @@ export function addRouteId(mapState, routeId) {
 export function addRouteData(mapState, routeId, route) {
 	const routeStops = routeStopMarkers(route);
 	addMarkers(mapState, routeStops);
-	const directions = (route?.polylines ?? []).flatMap((polyline) => {
-		const coordinates = decodePolyline(polyline.encoded_polyline ?? '');
-		return coordinates.length >= 2 ? [{ direction: routeId, coordinates }] : [];
-	});
+	const directions = routeDirections(route, routeId);
 	addDirections(mapState, directions);
 	if (routeStops.length || directions.length) addRouteId(mapState, routeId);
 	return routeStops.length > 0 || directions.length > 0;

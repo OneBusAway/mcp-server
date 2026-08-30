@@ -73,6 +73,7 @@
 	let showThemes     = $state(false);
 	let activeTheme    = $state(settings.mapStyle);
 	let selectedStop   = $state(null);
+	let mapLoading     = $state(true);
 	let vehicleRefreshId = null; // plain var — not reactive
 
 	// True when any of this map's tracked trips is being watched in the tracking store
@@ -107,6 +108,7 @@
 	function applyTheme(url) {
 		activeTheme = url;
 		showThemes  = false;
+		mapLoading = true;
 		map?.setStyle(url);
 	}
 
@@ -118,19 +120,26 @@
 		routeLayerIds = [];
 	}
 
-	function makeBusElement(v) {
-		const color = '#16a34a';
-
-		const el = document.createElement('div');
-		el.style.cssText = 'cursor:pointer;user-select:none;line-height:0;filter:drop-shadow(0 1px 3px rgba(0,0,0,0.32));width:34px;height:34px;';
-		el.innerHTML = `<svg width="34" height="34" viewBox="0 0 34 34" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Vehicle">
+	function busInnerHTML(color, isTracked) {
+		let html = '';
+		if (isTracked) {
+			html += `<svg style="position:absolute;inset:-6px;width:46px;height:46px;pointer-events:none;" viewBox="0 0 46 46" fill="none"><circle cx="23" cy="23" r="18" stroke="${color}" stroke-width="2.5" opacity="0.7"><animate attributeName="r" values="15;19;15" dur="1.5s" repeatCount="indefinite"/><animate attributeName="opacity" values="0.7;0.15;0.7" dur="1.5s" repeatCount="indefinite"/></circle></svg>`;
+		}
+		html += `<svg width="34" height="34" viewBox="0 0 34 34" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Vehicle">
 			<circle cx="17" cy="17" r="11.5" fill="${color}" stroke="white" stroke-width="1.5"/>
-			<!-- Bus front: white body with green sign, windshield, and wheel details. -->
 			<path d="M12.25 23.5v-8.1c0-2.55 1.65-4.15 4.75-4.15s4.75 1.6 4.75 4.15v8.1h-1v1.15c0 .4-.32.7-.7.7h-.6a.7.7 0 0 1-.7-.7V23.5h-3.5v1.15c0 .4-.32.7-.7.7h-.6a.7.7 0 0 1-.7-.7V23.5h-1Z" fill="white"/>
 			<rect x="15.05" y="12.55" width="3.9" height="1.15" rx=".5" fill="${color}"/>
 			<path d="M14.1 15h5.8c.4 0 .7.3.75.7l.35 3.15H13l.35-3.15c.05-.4.35-.7.75-.7Z" fill="${color}"/>
 			<circle cx="14.35" cy="21.25" r=".85" fill="${color}"/><circle cx="19.65" cy="21.25" r=".85" fill="${color}"/>
 		</svg>`;
+		return html;
+	}
+
+	function makeBusElement(v, isTracked = false) {
+		const color = isTracked ? '#f59e0b' : '#16a34a';
+		const el = document.createElement('div');
+		el.style.cssText = `cursor:pointer;user-select:none;line-height:0;position:relative;width:34px;height:34px;filter:drop-shadow(0 ${isTracked ? '2px 5px rgba(245,158,11,0.55)' : '1px 3px rgba(0,0,0,0.32)'});`;
+		el.innerHTML = busInnerHTML(color, isTracked);
 		return el;
 	}
 
@@ -153,20 +162,45 @@
 		return Math.hypot(a[0] - b[0], a[1] - b[1]);
 	}
 
+	// Metres per degree of longitude at a given latitude
+	const METRES_PER_DEG = 111320;
+	function mPerDeg(lat) { return METRES_PER_DEG * Math.cos(lat * Math.PI / 180); }
+
+	// Returns nearest point on polyline with distM in metres (latitude-corrected)
 	function nearestPointOnRoute(point, coordinates) {
+		const lonScale = mPerDeg(point[1]);
 		let nearest = null;
 		for (let index = 0; index < coordinates.length - 1; index++) {
 			const start = coordinates[index];
 			const end = coordinates[index + 1];
-			const dx = end[0] - start[0];
-			const dy = end[1] - start[1];
+			const dx = (end[0] - start[0]) * lonScale;
+			const dy = (end[1] - start[1]) * METRES_PER_DEG;
+			const px = (point[0] - start[0]) * lonScale;
+			const py = (point[1] - start[1]) * METRES_PER_DEG;
 			const lengthSq = dx * dx + dy * dy;
-			const fraction = lengthSq ? Math.max(0, Math.min(1, ((point[0] - start[0]) * dx + (point[1] - start[1]) * dy) / lengthSq)) : 0;
-			const snapped = [start[0] + dx * fraction, start[1] + dy * fraction];
-			const distance = pointDistance(point, snapped);
-			if (!nearest || distance < nearest.distance) nearest = { point: snapped, index, fraction, distance };
+			const fraction = lengthSq ? Math.max(0, Math.min(1, (px * dx + py * dy) / lengthSq)) : 0;
+			const snapped = [start[0] + (end[0] - start[0]) * fraction, start[1] + (end[1] - start[1]) * fraction];
+			const ex = (point[0] - snapped[0]) * lonScale;
+			const ey = (point[1] - snapped[1]) * METRES_PER_DEG;
+			const distM = Math.hypot(ex, ey);
+			if (!nearest || distM < nearest.distM) nearest = { point: snapped, index, fraction, distM };
 		}
 		return nearest;
+	}
+
+	// Snap a [lon, lat] position to the nearest route line within 400 m.
+	// OBA GPS reports can drift 150-300 m from the shape; 400 m catches real
+	// noise while still rejecting vehicles that are genuinely on a different road.
+	function snapToRoute(lngLat) {
+		let best = null;
+		for (const dir of routes) {
+			const coords = routeCoordinates(dir);
+			if (coords.length < 2) continue;
+			const nearest = nearestPointOnRoute(lngLat, coords);
+			if (!nearest) continue;
+			if (!best || nearest.distM < best.distM) best = nearest;
+		}
+		return (best && best.distM <= 400) ? best.point : null;
 	}
 
 	function routeCoordinatesForVehicle(vehicle, target) {
@@ -178,7 +212,7 @@
 			if (coordinates.length < 2) continue;
 			const match = ids.has(String(direction.direction));
 			const nearest = nearestPointOnRoute(target, coordinates);
-			const score = nearest.distance + (match ? 0 : 1);
+			const score = nearest.distM + (match ? 0 : 500);
 			if (!best || score < best.score) best = { coordinates, score };
 		}
 		return best?.coordinates ?? null;
@@ -189,8 +223,9 @@
 		if (!coordinates) return null;
 		const start = nearestPointOnRoute(from, coordinates);
 		const end = nearestPointOnRoute(target, coordinates);
-		// Do not force vehicles onto a distant, unrelated route shape.
-		if (!start || !end || start.distance > 0.02 || end.distance > 0.02) return null;
+		// 400 m threshold — generous enough for OBA GPS noise, still rejects vehicles
+		// that are genuinely on a different road
+		if (!start || !end || start.distM > 400 || end.distM > 400) return null;
 
 		const startProgress = start.index + start.fraction;
 		const endProgress = end.index + end.fraction;
@@ -203,7 +238,12 @@
 
 	function animateAlongRoute(entry, path, duration = 2800) {
 		if (entry._animRaf) cancelAnimationFrame(entry._animRaf);
-		const segmentLengths = path.slice(1).map((point, index) => pointDistance(path[index], point));
+		// Use metre-based segment lengths for proportional speed across lat/lon
+		const segmentLengths = path.slice(1).map((point, index) => {
+			const from = path[index];
+			const refLat = (from[1] + point[1]) / 2;
+			return Math.hypot((point[0] - from[0]) * mPerDeg(refLat), (point[1] - from[1]) * METRES_PER_DEG);
+		});
 		const totalLength = segmentLengths.reduce((total, length) => total + length, 0);
 		if (!totalLength) return;
 		const start = performance.now();
@@ -236,38 +276,62 @@
 		return parts.join(' · ') || v.vehicle_id || 'Vehicle';
 	}
 
-	function buildVehicleMarkers() {
+	// A physical bus can appear on multiple trips (interlined service, OBA quirks).
+	// Deduplicate by vehicle_id: prefer the entry that has GPS coordinates.
+	function deduplicateVehicles(vehicles) {
+		const byVehicleId = new Map();
+		const noId = [];
+		for (const v of vehicles) {
+			if (!v.vehicle_id) { noId.push(v); continue; }
+			const existing = byVehicleId.get(v.vehicle_id);
+			if (!existing || (!existing.lat && v.lat)) byVehicleId.set(v.vehicle_id, v);
+		}
+		return [...byVehicleId.values(), ...noId];
+	}
+
+	function buildVehicleMarkers(trackedIds = new Set()) {
 		if (!map || !maplibregl) return;
 		const seen = new Set();
 
-		for (const v of localVehicles) {
+		for (const v of deduplicateVehicles(localVehicles)) {
 			const key = v.trip_id || v.vehicle_id;
 			if (!key || !v.lat || !v.lon) continue;
 			seen.add(key);
 			const lngLat = [v.lon, v.lat];
 			const popupText = vehiclePopupText(v);
 
+			const isTracked = trackedIds.has(key);
 			if (vehicleMarkerMap.has(key)) {
 				const entry = vehicleMarkerMap.get(key);
-				const { marker, popup, el } = entry;
+				const { marker, popup } = entry;
+				// Update visual in-place if tracked state changed
+				if (entry.isTracked !== isTracked) {
+					const color = isTracked ? '#f59e0b' : '#16a34a';
+					entry.el.innerHTML = busInnerHTML(color, isTracked);
+					entry.el.style.filter = `drop-shadow(0 ${isTracked ? '2px 5px rgba(245,158,11,0.55)' : '1px 3px rgba(0,0,0,0.32)'})`;
+					entry.isTracked = isTracked;
+				}
 				const curr = marker.getLngLat();
 				if (curr.lng !== v.lon || curr.lat !== v.lat) {
 					const path = routePathForVehicle(v, [curr.lng, curr.lat], lngLat);
 					if (path?.length > 1) animateAlongRoute(entry, path);
-					else animateTo(entry, v.lat, v.lon, 1800);
+					else {
+						const snapped = snapToRoute(lngLat);
+						animateTo(entry, (snapped ?? lngLat)[1], (snapped ?? lngLat)[0], 1800);
+					}
 				}
 				if (popup) popup.setLngLat(lngLat).setText(popupText);
 			} else {
-				const el = makeBusElement(v);
+				const el = makeBusElement(v, isTracked);
 				const popup = new maplibregl.Popup({
 					offset: 20, closeButton: false, className: 'oba-hover-popup'
 				}).setLngLat(lngLat).setText(popupText);
 				const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
-					.setLngLat(lngLat)
+					.setLngLat(snapToRoute(lngLat) ?? lngLat)
 					.addTo(map);
 				el.addEventListener('mouseenter', () => popup.addTo(map));
 				el.addEventListener('mouseleave', () => popup.remove());
-				vehicleMarkerMap.set(key, { marker, popup, el, _animRaf: null });
+				vehicleMarkerMap.set(key, { marker, popup, el, isTracked, _animRaf: null });
 			}
 		}
 
@@ -505,6 +569,7 @@
 		map.on('style.load', () => {
 			buildLayers();
 			buildVehicleMarkers();
+			mapLoading = false;
 			// Fetch GPS immediately — arrivals API may not include position in tripStatus
 			if (vehicleTripIds?.length > 0 || agencyId) {
 				refreshVehiclePositions();
@@ -529,11 +594,12 @@
 		}
 	});
 
-	// Update vehicle markers whenever localVehicles changes (prop update or refresh)
+	// Update vehicle markers whenever localVehicles or tracking state changes
 	$effect(() => {
 		const _v = localVehicles;
+		const trackedIds = new Set(tracking.trackers.map(t => t.trip_id));
 		if (map && map.isStyleLoaded()) {
-			buildVehicleMarkers();
+			buildVehicleMarkers(trackedIds);
 		}
 	});
 
@@ -596,6 +662,15 @@
 		<!-- Map viewport -->
 		<div class="relative" style={isFullscreen ? 'flex: 1 1 0; min-height: 0;' : 'height: 220px'}>
 			<div bind:this={mapEl} style="position: absolute; inset: 0;"></div>
+			{#if mapLoading}
+				<div class="absolute inset-0 z-20 flex items-center justify-center bg-white/80 text-sm text-zinc-600 backdrop-blur-sm dark:bg-zinc-950/80 dark:text-zinc-300" aria-live="polite">
+					<svg class="mr-2 h-4 w-4 animate-spin text-oba-600" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+						<circle class="opacity-25" cx="12" cy="12" r="9" stroke="currentColor" stroke-width="3"></circle>
+						<path class="opacity-75" fill="currentColor" d="M12 3a9 9 0 0 1 9 9h-3a6 6 0 0 0-6-6V3z"></path>
+					</svg>
+					Loading map…
+				</div>
+			{/if}
 
 			<!-- Controls -->
 			<div class="absolute right-2 top-2 z-10 flex items-center gap-1">
