@@ -1,4 +1,5 @@
 MCP_URL ?= http://localhost:8080
+MCP_AUTH_TOKEN ?= local-dev
 
 .PHONY: dev build preview install docker-build docker-up docker-down docker-logs
 
@@ -6,9 +7,9 @@ MCP_URL ?= http://localhost:8080
 install:
 	npm install
 
-## dev: start the SvelteKit dev server (requires oba-mcp running on MCP_URL)
+## dev: start the SvelteKit dev server with server-only MCP credentials
 dev:
-	PUBLIC_MCP_URL=$(MCP_URL) npm run dev
+	OBA_MCP_URL=$(MCP_URL) OBA_MCP_AUTH_TOKEN=$(MCP_AUTH_TOKEN) npm run dev
 
 ## build: production build
 build:

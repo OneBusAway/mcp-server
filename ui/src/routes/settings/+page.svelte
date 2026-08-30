@@ -38,8 +38,6 @@
 	let provider   = $state(settings.provider);
 	let apiKey     = $state(settings.apiKey);
 	let model      = $state(settings.model);
-	let obaBaseUrl = $state(settings.obaBaseUrl);
-	let obaApiKey  = $state(settings.obaApiKey);
 	let mapStyle   = $state(settings.mapStyle);
 
 	const MAP_STYLES = [
@@ -63,8 +61,6 @@
 		settings.provider   = provider;
 		settings.apiKey     = apiKey;
 		settings.model      = model;
-		settings.obaBaseUrl = obaBaseUrl;
-		settings.obaApiKey  = obaApiKey;
 		settings.mapStyle   = mapStyle;
 		saved = true;
 		setTimeout(() => (saved = false), 2500);
@@ -74,7 +70,7 @@
 		testing    = true;
 		testResult = '';
 		try {
-			const res = await fetch(`${obaBaseUrl}/mcp`, {
+			const res = await fetch('/api/mcp', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
 				body: JSON.stringify({
@@ -192,15 +188,10 @@
 
 			<div class="space-y-4">
 				<div>
-					<label for="mcp-url" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Server URL</label>
-					<div class="flex gap-2">
-						<input
-							id="mcp-url"
-							type="url"
-							bind:value={obaBaseUrl}
-							placeholder="http://localhost:8080"
-							class="flex-1 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 font-mono text-sm focus:border-oba-400 focus:outline-none focus:ring-2 focus:ring-oba-400/20 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
-						/>
+					<div class="flex items-center gap-2">
+						<p class="flex-1 text-sm text-zinc-600 dark:text-zinc-300">
+							Configured by the UI server. MCP credentials never enter this browser.
+						</p>
 						<button
 							type="button"
 							onclick={testConnection}
@@ -222,21 +213,9 @@
 						</p>
 					{:else}
 						<p class="mt-1 text-xs text-zinc-400 dark:text-zinc-500">
-							Run <code class="rounded bg-zinc-100 px-1 dark:bg-zinc-800">make serve-http</code> to start on port 8080.
+							Ask the deployment administrator to configure the MCP connection if this test fails.
 						</p>
 					{/if}
-				</div>
-
-				<div>
-					<label for="oba-key" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">OBA API Key</label>
-					<input
-						id="oba-key"
-						type="text"
-						bind:value={obaApiKey}
-						placeholder="test"
-						class="w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 font-mono text-sm focus:border-oba-400 focus:outline-none focus:ring-2 focus:ring-oba-400/20 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
-					/>
-					<p class="mt-1 text-xs text-zinc-400 dark:text-zinc-500">Default is <code>test</code> for local maglev.</p>
 				</div>
 			</div>
 		</section>

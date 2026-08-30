@@ -34,9 +34,9 @@ services:
     ports:
       - "${OBA_UI_PORT:-3000}:3000"
     environment:
-      # URL the browser uses to reach the MCP server.
-      # If oba-mcp is behind a reverse proxy, set this to the public URL.
-      PUBLIC_MCP_URL: ${PUBLIC_MCP_URL:-http://localhost:8080}
+      # Server-only MCP connection. Do not expose this token to browsers.
+      OBA_MCP_URL: http://oba-mcp:8080
+      OBA_MCP_AUTH_TOKEN: ${OBA_HTTP_AUTH_TOKEN:?OBA_HTTP_AUTH_TOKEN is required}
     restart: unless-stopped
     depends_on:
       - oba-mcp

@@ -8,6 +8,7 @@
 
 import { browser } from '$app/environment';
 import { callTool } from '$lib/mcp.js';
+import { unwrap, items, normalizeArrival, normalizeArrivals } from '$lib/result.js';
 
 async function requestNotifPermission() {
 	if (!browser || !('Notification' in window)) return false;
@@ -69,19 +70,21 @@ function createTrackingStore() {
 		if (!tracker || tracker.status === 'done') return;
 
 		try {
-			const data = await callTool('get_arrival_and_departure_for_stop', {
+			const result = await callTool('get_arrival_and_departure_for_stop', {
 				stop_id: tracker.stop_id,
 				trip_id: tracker.trip_id,
 				service_date: tracker.service_date,
 			});
 
-			// OneBusAway removes an arrival after the vehicle passes the stop.
-			// That is a terminal tracking state, not a failed update.
-			if (typeof data === 'string' && /^No arrival found/i.test(data)) {
+			// Phase-4: "not found" comes as a success envelope with null data.
+			// Legacy: a plain string starting with "No arrival found".
+			const raw = unwrap(result);
+			if (!raw || !raw.trip_id || (typeof raw === 'string' && /^No arrival found/i.test(raw))) {
 				_markArrived(tracker, tracker.predicted_arrival, true);
 				return;
 			}
 
+			const data = normalizeArrival(raw);
 			const stopsAway = data?.number_of_stops_away;
 			const arrival = data?.predicted_arrival || data?.scheduled_arrival || tracker.predicted_arrival;
 
@@ -104,13 +107,12 @@ function createTrackingStore() {
 	/** Fetch full arrivals for a stop and expose them reactively for live panel/map updates. */
 	async function _pollStop(stop_id) {
 		try {
-			const data = await callTool('get_arrivals_for_stop', {
+			const result = await callTool('get_arrivals_for_stop', {
 				stop_id,
 				minutes_before: TRACKING_MINUTES_BEFORE,
 				minutes_after: 60,
 			});
-			const arrivals = Array.isArray(data) ? data : (data?.arrivals ?? []);
-			// Clear stale positions after the before-window expires.
+			const arrivals = normalizeArrivals(items(result));
 			stopArrivals = { ...stopArrivals, [stop_id]: arrivals };
 		} catch {}
 	}
@@ -122,7 +124,9 @@ function createTrackingStore() {
 	async function add({ stop_id, stop_name, arrivals }) {
 		await requestNotifPermission();
 
-		const eligible = arrivals.filter(a => a.predicted && a.trip_id && a.service_date);
+		const eligible = arrivals
+			.map(normalizeArrival)
+			.filter(a => a.predicted && a.trip_id && a.service_date);
 		if (!eligible.length) return 0;
 
 		let added = 0;
@@ -140,7 +144,7 @@ function createTrackingStore() {
 					stop_id, stop_name,
 					trip_id: a.trip_id,
 					service_date: a.service_date,
-					route_name: a.route_name || a.route_short_name || '?',
+					route_name: a.route_name,
 					headsign: a.headsign || '',
 					stops_away: a.number_of_stops_away ?? null,
 					predicted_arrival: a.predicted_arrival || a.scheduled_arrival || '',

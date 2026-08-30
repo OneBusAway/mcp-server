@@ -3,6 +3,7 @@
 	import { browser } from '$app/environment';
 	import { settings } from '$lib/settings.svelte.js';
 	import { callTool } from '$lib/mcp.js';
+	import { items, unwrap } from '$lib/result.js';
 	import { tracking } from '$lib/tracking.svelte.js';
 	import ArrivalsPanel from './ArrivalsPanel.svelte';
 
@@ -147,7 +148,7 @@
 		}
 		entry._animRaf = requestAnimationFrame(step);
 	}
-w
+
 	function pointDistance(a, b) {
 		return Math.hypot(a[0] - b[0], a[1] - b[1]);
 	}
@@ -283,9 +284,10 @@ w
 	async function refreshVehiclePositions() {
 		if (agencyId) {
 			try {
-				const data = await callTool('get_vehicles_for_agency', { agency_id: agencyId });
-				if (Array.isArray(data) && data.length) {
-					localVehicles = data.filter(v => v.lat && v.lon);
+				const result = await callTool('get_vehicles_for_agency', { agency_id: agencyId });
+				const fleet = items(result);
+				if (fleet.length) {
+					localVehicles = fleet.filter(v => v.lat && v.lon);
 				}
 			} catch {}
 		} else if (vehicleTripIds?.length) {
@@ -293,9 +295,11 @@ w
 			const settled = await Promise.allSettled(
 				ids.map(id => callTool('get_trip_details', { trip_id: id, include_schedule: false }))
 			);
-			const updates = settled
-				.filter(r => r.status === 'fulfilled' && r.value?.lat && r.value?.lon)
-				.map(r => r.value);
+			const updates = settled.flatMap((r) => {
+				if (r.status !== 'fulfilled') return [];
+				const d = unwrap(r.value);
+				return d?.lat != null && d?.lon != null ? [d] : [];
+			});
 			if (updates.length) {
 				// Merge: update existing vehicles' positions OR add vehicles that weren't in arrivals GPS
 				const merged = [...localVehicles];

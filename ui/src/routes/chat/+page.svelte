@@ -4,6 +4,7 @@
 	import { chat } from '$lib/chat.svelte.js';
 	import { settings } from '$lib/settings.svelte.js';
 	import { callTool } from '$lib/mcp.js';
+	import { unwrap } from '$lib/result.js';
 	import Icon from '$lib/components/Icon.svelte';
 	import BusLoader from '$lib/components/BusLoader.svelte';
 	import ArrivalRow from '$lib/components/ArrivalRow.svelte';
@@ -71,11 +72,12 @@
 		drawErrors = errNext;
 		try {
 			const result = await callTool('get_stops_for_route', { route_id: routeId });
-			if (!result?.polylines?.length) {
+			const routeData = unwrap(result);
+			if (!routeData?.polylines?.length) {
 				drawErrors = new Set([...drawErrors, routeId]);
 				return;
 			}
-			const directions = result.polylines
+			const directions = routeData.polylines
 				.map((polyline) => ({ direction: routeName, encodedPolyline: polyline.encoded_polyline }))
 				.filter((line) => line.encodedPolyline);
 			if (directions.length) {

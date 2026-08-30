@@ -82,8 +82,6 @@ function createSettings() {
 	let provider    = $state(load('provider', 'anthropic'));
 	let apiKey      = $state(load('api_key', ''));
 	let model       = $state(load('chat_model', 'claude-haiku-4-5-20251001'));
-	let obaBaseUrl  = $state(load('oba_base_url', 'http://localhost:8080'));
-	let obaApiKey   = $state(load('oba_api_key', 'test'));
 	let mapStyle    = $state(load('map_style', 'https://tiles.openfreemap.org/styles/bright'));
 
 	return {
@@ -99,16 +97,8 @@ function createSettings() {
 		get model()      { return model; },
 		set model(v)     { model = v; save('chat_model', v); },
 
-		get obaBaseUrl() { return obaBaseUrl; },
-		set obaBaseUrl(v){ obaBaseUrl = v; save('oba_base_url', v); },
-
-		get obaApiKey()  { return obaApiKey; },
-		set obaApiKey(v) { obaApiKey = v; save('oba_api_key', v); },
-
 		get mapStyle()   { return mapStyle; },
 		set mapStyle(v)  { mapStyle = v; save('map_style', v); },
-
-		get mcpUrl()     { return obaBaseUrl; },
 
 		get providerConfig() {
 			return PROVIDERS.find((p) => p.id === provider) ?? PROVIDERS[0];

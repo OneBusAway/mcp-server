@@ -1,5 +1,6 @@
 <script>
 	import { callTool } from '$lib/mcp.js';
+	import { items, normalizeArrivals } from '$lib/result.js';
 	import { tracking } from '$lib/tracking.svelte.js';
 	import ArrivalRow from './ArrivalRow.svelte';
 	import BusLoader from './BusLoader.svelte';
@@ -33,12 +34,15 @@
 			merged.push({
 				trip_id: tracker.trip_id,
 				service_date: tracker.service_date,
-				route_short_name: tracker.route_name,
+				service_date_ms: tracker.service_date,
 				route_name: tracker.route_name,
+				route_short_name: tracker.route_name,
 				headsign: tracker.headsign,
 				predicted: true,
 				predicted_arrival: tracker.predicted_arrival,
+				predicted_arrival_display: tracker.predicted_arrival,
 				scheduled_arrival: tracker.predicted_arrival,
+				scheduled_arrival_display: tracker.predicted_arrival,
 				number_of_stops_away: tracker.stops_away,
 			});
 		}
@@ -50,8 +54,8 @@
 		loading = true;
 		error   = '';
 		try {
-			const data = await callTool('get_arrivals_for_stop', { stop_id: stopId, minutes_after: 60 });
-			arrivals = preserveTrackedArrivals(Array.isArray(data) ? data : (data?.arrivals ?? [])).slice(0, 10);
+			const result = await callTool('get_arrivals_for_stop', { stop_id: stopId, minutes_after: 60 });
+			arrivals = preserveTrackedArrivals(normalizeArrivals(items(result))).slice(0, 10);
 			lastAt   = new Date();
 		} catch (e) {
 			error = e.message;
@@ -74,14 +78,14 @@
 		}
 
 		let trackable = arrival;
-		if (!trackable.service_date) {
+		if (!trackable.service_date && !trackable.service_date_ms) {
 			try {
-				const data = await callTool('get_arrivals_for_stop', {
+				const result = await callTool('get_arrivals_for_stop', {
 					stop_id: stopId,
 					minutes_before: 10,
 					minutes_after: 60,
 				});
-				const refreshed = Array.isArray(data) ? data : (data?.arrivals ?? []);
+				const refreshed = normalizeArrivals(items(result));
 				trackable = refreshed.find((item) => item.trip_id === arrival.trip_id) ?? arrival;
 			} catch {}
 		}

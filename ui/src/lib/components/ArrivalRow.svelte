@@ -3,10 +3,12 @@
 
 	/**
 	 * @typedef {{
-	 *   route_short_name: string,
-	 *   route_long_name?: string,
+	 *   route_name?: string,
+	 *   route_short_name?: string,
 	 *   headsign?: string,
-	 *   scheduled_arrival: string,
+	 *   scheduled_arrival_display?: string,
+	 *   scheduled_arrival?: string,
+	 *   predicted_arrival_display?: string,
 	 *   predicted_arrival?: string,
 	 *   predicted: boolean,
 	 *   deviation_label?: string,
@@ -17,22 +19,26 @@
 	/** @type {{ arrival: Arrival, trackingActive?: boolean, onToggleTracking?: (() => void) | null }} */
 	let { arrival, trackingActive = false, onToggleTracking = null } = $props();
 
-	const late    = (arrival.deviation_seconds ?? 0) > 60;
-	const early   = (arrival.deviation_seconds ?? 0) < -60;
-	const ontime  = !late && !early;
-	const devColor = late ? '#ef4444' : early ? '#3b82f6' : '#4caf50';
+	const routeLabel = $derived(arrival.route_name ?? arrival.route_short_name ?? '');
+	const schedTime  = $derived(arrival.scheduled_arrival_display ?? arrival.scheduled_arrival ?? '');
+	const predTime   = $derived(arrival.predicted_arrival_display ?? arrival.predicted_arrival ?? schedTime);
+
+	const late     = $derived((arrival.deviation_seconds ?? 0) > 60);
+	const early    = $derived((arrival.deviation_seconds ?? 0) < -60);
+	const isOnTime = $derived(!late && !early);
+	const devColor = $derived(late ? '#ef4444' : early ? '#3b82f6' : '#4caf50');
 </script>
 
 <div class="flex items-center gap-3 rounded-lg px-3 py-2.5 transition hover:bg-zinc-50 dark:hover:bg-zinc-800/60">
 	<!-- Route badge -->
 	<span class="flex h-8 w-10 shrink-0 items-center justify-center rounded-md bg-oba-500 text-xs font-bold text-white">
-		{arrival.route_short_name}
+		{routeLabel}
 	</span>
 
 	<!-- Info -->
 	<div class="min-w-0 flex-1">
 		<p class="truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">
-			{arrival.headsign ?? arrival.route_long_name ?? '—'}
+			{arrival.headsign ?? '—'}
 		</p>
 		<div class="flex items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
 			<StatusDot live={arrival.predicted} color={arrival.predicted ? '#4caf50' : '#a1a1aa'} />
@@ -46,12 +52,14 @@
 	<!-- Time -->
 	<div class="shrink-0 text-right">
 		<p class="text-sm font-semibold {arrival.predicted ? 'text-oba-700 dark:text-oba-400' : 'text-zinc-600 dark:text-zinc-300'}">
-			{arrival.predicted ? (arrival.predicted_arrival ?? arrival.scheduled_arrival) : arrival.scheduled_arrival}
+			{arrival.predicted ? predTime : schedTime}
 		</p>
 		{#if arrival.deviation_label}
 			<span class="text-xs font-medium" style="color: {devColor}">
 				{arrival.deviation_label}
 			</span>
+		{:else if arrival.predicted && isOnTime}
+			<span class="text-xs font-medium" style="color: #4caf50">On time</span>
 		{/if}
 	</div>
 

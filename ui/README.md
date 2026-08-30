@@ -19,26 +19,29 @@ SvelteKit web chat interface for the [OneBusAway MCP server](../mcp/). Ask quest
 ## Quick Start
 
 ```sh
-# 1. Start the MCP server (from the repo root or ../mcp/)
-cd ../mcp && make serve-http
+# 1. Start the MCP server (from ../mcp/)
+cd ../mcp && OBA_HTTP_AUTH_TOKEN=local-dev make serve-http
 
 # 2. Install dependencies and start the dev server
-npm install
-npm run dev           # http://localhost:5173
+cd ../ui && npm install
+MCP_AUTH_TOKEN=local-dev make dev # http://localhost:5173
 ```
 
-Open the UI, go to **Settings**, set your MCP server URL and API key, then start chatting.
+The UI server holds MCP connection details. The browser never receives the
+MCP bearer token or the upstream OBA API key.
 
 ## Configuration
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| MCP Server URL | `http://localhost:8080` | URL of the running `mcp` HTTP server |
 | Provider | Anthropic | AI provider: Anthropic, OpenAI, OpenRouter, Ollama, llama-server |
 | API Key | — | API key for the selected provider |
 | Model | `claude-haiku-4-5-20251001` | Model to use for chat |
 
-Settings are stored in `localStorage` — no server-side config needed.
+Provider settings are stored in `localStorage`. Configure the UI server with
+`OBA_MCP_URL` (the private MCP base URL) and `OBA_MCP_AUTH_TOKEN` (the private
+MCP bearer token). These values must be set as deployment secrets, not browser
+settings.
 
 ## Docker
 
@@ -53,7 +56,9 @@ Or build the image directly:
 
 ```sh
 make docker-build
-docker run -p 3000:3000 -e PUBLIC_MCP_URL=http://localhost:8080 oba-mcp-ui
+docker run -p 3000:3000 \
+  -e OBA_MCP_URL=http://host.docker.internal:8080 \
+  -e OBA_MCP_AUTH_TOKEN=local-dev oba-mcp-ui
 ```
 
 ## Project Layout
@@ -64,7 +69,7 @@ src/
   app.css                # Tailwind base styles
   lib/
     chat.svelte.js       # Global chat store (messages, streaming, history)
-    mcp.js               # MCP HTTP client (callTool, listTools)
+    mcp.js               # Same-origin MCP proxy client (callTool, listTools)
     settings.svelte.js   # Persistent UI settings (provider, model, API key)
     components/
       ArrivalsPanel.svelte  # Live arrival board for a stop
@@ -75,13 +80,14 @@ src/
   routes/
     +layout.svelte       # App shell (sidebar + main)
     chat/+page.svelte    # Main chat page
+    api/mcp/+server.js   # Server-only authenticated MCP proxy
     api/chat/+server.js  # SSE streaming endpoint — bridges UI ↔ MCP ↔ AI
 ```
 
 ## Makefile
 
 ```sh
-make dev            # start dev server (set MCP_URL=http://... to override)
+MCP_AUTH_TOKEN=local-dev make dev # start dev server; MCP_URL overrides the target
 make build          # production build
 make preview        # preview production build
 make docker-build   # build Docker image
