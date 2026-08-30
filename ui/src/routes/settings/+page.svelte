@@ -39,6 +39,7 @@
 	let apiKey     = $state(settings.apiKey);
 	let model      = $state(settings.model);
 	let mapStyle   = $state(settings.mapStyle);
+	let toolMode   = $state(settings.toolMode);
 
 	const MAP_STYLES = [
 		{ id: 'https://tiles.openfreemap.org/styles/bright',   label: 'OpenFreeMap Bright — clean, minimal (recommended)' },
@@ -62,6 +63,7 @@
 		settings.apiKey     = apiKey;
 		settings.model      = model;
 		settings.mapStyle   = mapStyle;
+		settings.toolMode   = toolMode;
 		saved = true;
 		setTimeout(() => (saved = false), 2500);
 	}
@@ -144,6 +146,26 @@
 						</button>
 					</div>
 					<p class="mt-1 text-xs text-zinc-400 dark:text-zinc-500">{currentProvider.keyHelp}</p>
+				</div>
+
+				<!-- Tool access mode -->
+				<div>
+					<p class="mb-1.5 text-sm font-medium text-zinc-700 dark:text-zinc-300">Tool access</p>
+					<div class="grid grid-cols-2 gap-2">
+						{#each [{ id: 'rider', label: 'Rider', desc: 'Curated tools for passenger questions' }, { id: 'all', label: 'All tools', desc: 'Every tool the MCP server exposes' }] as opt}
+							<button
+								type="button"
+								onclick={() => (toolMode = opt.id)}
+								class="flex flex-col rounded-lg border px-3 py-2.5 text-left text-sm transition
+									{toolMode === opt.id
+										? 'border-oba-400 bg-oba-50 text-oba-700 ring-1 ring-oba-400/30 dark:border-oba-600 dark:bg-oba-500/10 dark:text-oba-400'
+										: 'border-zinc-200 bg-zinc-50 text-zinc-600 hover:border-zinc-300 hover:bg-white dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700'}"
+							>
+								<span class="font-medium">{opt.label}</span>
+								<span class="mt-0.5 text-xs opacity-70">{opt.desc}</span>
+							</button>
+						{/each}
+					</div>
 				</div>
 
 				<!-- Model -->

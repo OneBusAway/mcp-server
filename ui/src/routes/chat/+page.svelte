@@ -139,9 +139,10 @@
 		if (textarea) { textarea.style.height = 'auto'; }
 
 		await chat.send(text, {
-			provider: settings.provider,
-			apiKey:   settings.apiKey,
-			model:    settings.model
+			provider:  settings.provider,
+			apiKey:    settings.apiKey,
+			model:     settings.model,
+			toolMode:  settings.toolMode,
 		});
 	}
 

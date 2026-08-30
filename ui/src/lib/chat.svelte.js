@@ -64,7 +64,7 @@ function createChatStore() {
 		_abort = null;
 	}
 
-	async function send(text, { provider, apiKey, model }) {
+	async function send(text, { provider, apiKey, model, toolMode = 'rider' }) {
 		if (!text?.trim() || loading || streaming) return;
 
 		error    = '';
@@ -82,7 +82,8 @@ function createChatStore() {
 					messages: messages.map((m) => ({ role: m.role, content: m.text })),
 					provider,
 					apiKey,
-					model
+					model,
+					toolMode,
 				})
 			});
 

@@ -18,10 +18,11 @@ RULES — follow these exactly:
 3. If a tool returns an error or empty result, report exactly what it returned. Do not apologize or repeat the call.
 4. Use stop IDs and route IDs exactly as given — do not modify them (e.g. "1_1" stays "1_1").
 5. Format times clearly: "3:42 PM (in 8 min)". Be concise.
-6. Map cards and arrival panels are shown automatically by the UI whenever a tool returns location or arrival data — never say you "cannot show on a map" or tell the user to use Google Maps.
-7. When listing multiple stops, call get_stop for each one — the UI will offer to show them all on a single map after your response. Do not describe coordinates or tell the user to look at a map manually.
-8. For a question about a specific stop (including "show incoming buses moving toward my stop"), call get_arrivals_for_stop first. Do NOT call get_vehicles_for_agency: it returns the entire fleet, is unnecessarily broad, and makes the answer less useful. The UI will show one map with only the arriving vehicles and their routes.
-9. For current vehicles on named routes, call get_trips_for_route once per route. Do not call get_vehicles_for_agency unless the user explicitly asks for the agency's entire fleet.`;
+6. Start with the answer; never narrate actions such as "I'll check" or "I'll get the details."
+7. In normal rider answers, never use the words UI, map, card, tool, display, render, or automatic. Do not explain internal behavior or capabilities.
+8. Do not include latitude or longitude unless the user explicitly asks for coordinates.
+9. For a question about a specific stop (including "show incoming buses moving toward my stop"), call get_arrivals_for_stop first. Do NOT call get_vehicles_for_agency: it returns the entire fleet and makes the answer less useful.
+10. For current vehicles on named routes, call get_trips_for_route once per route. Do not call get_vehicles_for_agency unless the user explicitly asks for the agency's entire fleet.`;
 
 const LOCAL_SYSTEM = `You are a transit assistant with access to live OneBusAway transit data via tools.
 
@@ -34,8 +35,9 @@ CRITICAL RULES:
 - To list routes for an agency use get_routes_for_agency with the agency_id. Do NOT use search_routes for this.
 - If the tool returns an error, quote the error. Do not retry or apologize.
 - After getting tool results, answer directly. Do not ask follow-up questions.
-- Map cards are shown automatically by the UI — NEVER say you cannot show a map or tell the user to use another app.
-- When listing multiple stops, call get_stop for each one — the UI will offer to show them all on a map after your response.
+- Start with the answer; never narrate actions such as "I'll check" or "I'll get the details."
+- In normal rider answers, never use the words UI, map, card, tool, display, render, or automatic. Do not explain internal behavior or capabilities.
+- Do not include latitude or longitude unless the user explicitly asks for coordinates.
 - For a specific stop or its incoming buses, call get_arrivals_for_stop first. Never call get_vehicles_for_agency unless the user explicitly asks for all active vehicles in an agency.
 - For current vehicles on one or more named routes, call get_trips_for_route for each requested route. Do not call get_vehicles_for_agency for this.
 - Do not call a second arrival or overview tool for a stop after you already received its arrivals in this reply.
@@ -65,15 +67,15 @@ const RIDER_TOOLS = new Set([
 let _toolsCache = null;
 let _toolsCacheAt = 0;
 
-async function getToolDefs(mcp, stopFocused) {
+async function getToolDefs(mcp, stopFocused, allTools = false) {
 	if (!_toolsCache || Date.now() - _toolsCacheAt >= 5 * 60_000) {
 		_toolsCache = await mcp.listTools();
 		_toolsCacheAt = Date.now();
 	}
-	let filtered = _toolsCache.filter((t) => RIDER_TOOLS.has(t.name));
+	let filtered = allTools ? _toolsCache : _toolsCache.filter((t) => RIDER_TOOLS.has(t.name));
 	// The arrival tool is accurate and compact for a named stop. Skip the
 	// agency-wide fleet tool when the question is stop-focused.
-	if (stopFocused) filtered = filtered.filter((t) => t.name !== 'get_vehicles_for_agency');
+	if (!allTools && stopFocused) filtered = filtered.filter((t) => t.name !== 'get_vehicles_for_agency');
 	return filtered.map((t) => ({
 		name: t.name,
 		description: t.description,
@@ -99,10 +101,11 @@ export async function POST({ request, fetch }) {
 	const body = await request.json();
 	const { messages } = body;
 
-	const provider = body.provider ?? settings.provider ?? 'anthropic';
-	const apiKey   = body.apiKey   ?? settings.apiKey    ?? '';
-	const model    = body.model    ?? settings.model     ?? 'claude-haiku-4-5-20251001';
-	const provCfg  = getProviderCfg(provider);
+	const provider  = body.provider  ?? settings.provider ?? 'anthropic';
+	const apiKey    = body.apiKey    ?? settings.apiKey   ?? '';
+	const model     = body.model     ?? settings.model    ?? 'claude-haiku-4-5-20251001';
+	const allTools  = (body.toolMode ?? 'rider') === 'all';
+	const provCfg   = getProviderCfg(provider);
 
 	if (!apiKey && provider !== 'ollama' && provider !== 'llama-server') {
 		throw httpError(400, { error: `No API key set for ${provCfg.label}. Go to Settings.` });
@@ -112,7 +115,7 @@ export async function POST({ request, fetch }) {
 	const mcp = createMCPClient(fetch);
 	let tools;
 	try {
-		tools = await getToolDefs(mcp, isStopFocusedRequest(messages));
+		tools = await getToolDefs(mcp, isStopFocusedRequest(messages), allTools);
 	} catch (e) {
 		throw httpError(502, { error: `Cannot reach oba-mcp: ${e.message}` });
 	}

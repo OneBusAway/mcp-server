@@ -83,6 +83,7 @@ function createSettings() {
 	let apiKey      = $state(load('api_key', ''));
 	let model       = $state(load('chat_model', 'claude-haiku-4-5-20251001'));
 	let mapStyle    = $state(load('map_style', 'https://tiles.openfreemap.org/styles/bright'));
+	let toolMode    = $state(load('tool_mode', 'rider'));
 
 	return {
 		get provider()   { return provider; },
@@ -99,6 +100,9 @@ function createSettings() {
 
 		get mapStyle()   { return mapStyle; },
 		set mapStyle(v)  { mapStyle = v; save('map_style', v); },
+
+		get toolMode()   { return toolMode; },
+		set toolMode(v)  { toolMode = v; save('tool_mode', v); },
 
 		get providerConfig() {
 			return PROVIDERS.find((p) => p.id === provider) ?? PROVIDERS[0];
