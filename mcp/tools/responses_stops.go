@@ -25,8 +25,9 @@ type StopOverviewResponse struct {
 
 // StopScheduleResponse is returned by get_stop_schedule.
 type ScheduledTripResponse struct {
-	TripID    string `json:"trip_id"`
-	Departure string `json:"departure"`
+	TripID           string `json:"trip_id"`
+	DepartureMS      int64  `json:"departure_ms"`
+	DepartureDisplay string `json:"departure_display"`
 }
 
 type DirectionScheduleResponse struct {
@@ -40,7 +41,9 @@ type RouteScheduleResponse struct {
 }
 
 type StopScheduleResponse struct {
-	StopID string                  `json:"stop_id"`
-	Date   string                  `json:"date"`
-	Routes []RouteScheduleResponse `json:"routes"`
+	StopID      string                  `json:"stop_id"`
+	DateMS      int64                   `json:"date_ms,omitempty"`
+	DateDisplay string                  `json:"date_display,omitempty"`
+	Timezone    string                  `json:"timezone"`
+	Routes      []RouteScheduleResponse `json:"routes"`
 }

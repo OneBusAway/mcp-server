@@ -12,6 +12,7 @@ func (h *Handler) registerSystemTools(s *server.MCPServer) {
 	s.AddTool(
 		mcp.NewTool("get_current_time",
 			mcp.WithDescription("Get the current server time from the OBA API. Useful for knowing the reference time when interpreting schedules and arrivals."),
+			mcp.WithOutputSchema[SuccessEnvelope[CurrentTimeResponse]](),
 		),
 		h.getCurrentTime,
 	)
@@ -19,6 +20,7 @@ func (h *Handler) registerSystemTools(s *server.MCPServer) {
 	s.AddTool(
 		mcp.NewTool("get_metadata",
 			mcp.WithDescription("Get server metadata: when static GTFS data was last updated and the last refresh time for each real-time feed. Use to check data freshness."),
+			mcp.WithOutputSchema[SuccessEnvelope[MetadataResponse]](),
 		),
 		h.getMetadata,
 	)
@@ -35,12 +37,12 @@ func (h *Handler) getCurrentTime(ctx context.Context, req mcp.CallToolRequest) (
 	}
 
 	ms := entry.Time
-	readable := entry.ReadableTime
-	if readable == "" && ms > 0 {
-		readable = time.UnixMilli(int64(ms)).Format(time.RFC3339)
+	display := entry.ReadableTime
+	if display == "" && ms > 0 {
+		display = time.UnixMilli(int64(ms)).UTC().Format(time.RFC3339)
 	}
 
-	return toResult(dataResult("Current server time:\n", CurrentTimeResponse{Time: readable})), nil
+	return toResult(withCache(dataResult("Current server time:\n", CurrentTimeResponse{TimeMS: ms, TimeDisplay: display}), string(resp.CacheState))), nil
 }
 
 func (h *Handler) getMetadata(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -50,12 +52,29 @@ func (h *Handler) getMetadata(ctx context.Context, req mcp.CallToolRequest) (*mc
 		return toResult(errorResult(err.Error())), nil
 	}
 
-	output := MetadataResponse{RealtimeFeeds: make(map[string]string, len(metadata.RealtimeFeeds))}
+	now := time.Now()
+	output := MetadataResponse{RealtimeFeeds: make(map[string]FeedFreshness, len(metadata.RealtimeFeeds))}
 	if metadata.StaticGTFSLastUpdated != nil {
-		output.StaticGTFSLastUpdated = metadata.StaticGTFSLastUpdated.Format(time.RFC3339)
+		output.StaticGTFSLastUpdatedMS = metadata.StaticGTFSLastUpdated.UnixMilli()
 	}
 	for name, updated := range metadata.RealtimeFeeds {
-		output.RealtimeFeeds[name] = updated.Format(time.RFC3339)
+		ageSeconds := int64(now.Sub(updated).Seconds())
+		output.RealtimeFeeds[name] = FeedFreshness{
+			UpdatedAtMS: updated.UnixMilli(),
+			AgeSeconds:  max(ageSeconds, 0),
+			Status:      freshnessStatus(ageSeconds),
+		}
 	}
-	return toResult(dataResult("Server metadata:\n", output)), nil
+	return toResult(withCache(dataResult("Server metadata:\n", output), string(metadata.CacheState))), nil
+}
+
+func freshnessStatus(ageSeconds int64) string {
+	switch {
+	case ageSeconds <= 60:
+		return "fresh"
+	case ageSeconds <= 5*60:
+		return "delayed"
+	default:
+		return "stale"
+	}
 }

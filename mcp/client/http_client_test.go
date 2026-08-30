@@ -102,6 +102,27 @@ func TestGetDoesNotCacheOBAErrorEnvelopes(t *testing.T) {
 	}
 }
 
+func TestGetWithCacheStateReportsHitAndMiss(t *testing.T) {
+	var calls atomic.Int32
+	c := clientWithTransport(roundTripperFunc(func(*http.Request) (*http.Response, error) {
+		calls.Add(1)
+		return jsonResponse(http.StatusOK, `{"code":200}`), nil
+	}))
+
+	for _, wantState := range []CacheState{CacheMiss, CacheHit} {
+		_, state, err := c.GetWithCacheState(context.Background(), "/api/where/current-time.json", nil)
+		if err != nil {
+			t.Fatalf("GetWithCacheState returned error: %v", err)
+		}
+		if state != wantState {
+			t.Fatalf("cache state = %q, want %q", state, wantState)
+		}
+	}
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("upstream calls = %d, want 1", got)
+	}
+}
+
 func TestGetRetriesTransientFailures(t *testing.T) {
 	var calls atomic.Int32
 	c := clientWithTransport(roundTripperFunc(func(*http.Request) (*http.Response, error) {

@@ -15,6 +15,7 @@ func (h *Handler) registerTripTools(s *server.MCPServer) {
 		mcp.NewTool("get_block",
 			mcp.WithDescription("Get the block configuration for a block ID — the ordered sequence of trips a vehicle makes in a single day. Block IDs come from trip details."),
 			mcp.WithString("block_id", mcp.Required(), mcp.Description("Block ID (from a trip's blockId field)")),
+			mcp.WithOutputSchema[SuccessEnvelope[BlockResponse]](),
 		),
 		h.getBlock,
 	)
@@ -23,6 +24,7 @@ func (h *Handler) registerTripTools(s *server.MCPServer) {
 		mcp.NewTool("get_trip",
 			mcp.WithDescription("Get basic info for a trip by ID: route, headsign, direction, service dates."),
 			mcp.WithString("trip_id", mcp.Required(), mcp.Description("Trip ID (e.g. 'unitrans_12345')")),
+			mcp.WithOutputSchema[SuccessEnvelope[TripResponse]](),
 		),
 		h.getTrip,
 	)
@@ -34,6 +36,7 @@ func (h *Handler) registerTripTools(s *server.MCPServer) {
 			mcp.WithNumber("time", mcp.Description("Query trip at a Unix epoch millisecond timestamp through 2100")),
 			mcp.WithBoolean("include_schedule", mcp.Description("Include full stop schedule in response (default true)")),
 			mcp.WithBoolean("include_status", mcp.Description("Include real-time status in response (default true)")),
+			mcp.WithOutputSchema[SuccessEnvelope[TripDetailsResponse]](),
 		),
 		h.getTripDetails,
 	)
@@ -43,24 +46,27 @@ func (h *Handler) registerTripTools(s *server.MCPServer) {
 			mcp.WithDescription("Get the current trip being served by a specific vehicle. Use when the user asks about a specific bus by vehicle number."),
 			mcp.WithString("vehicle_id", mcp.Required(), mcp.Description("Vehicle ID (e.g. 'unitrans_1')")),
 			mcp.WithNumber("time", mcp.Description("Query trip at a Unix epoch millisecond timestamp through 2100")),
+			mcp.WithOutputSchema[SuccessEnvelope[VehicleResponse]](),
 		),
 		h.getTripForVehicle,
 	)
 
 	s.AddTool(
-		mcp.NewTool("get_vehicles_for_agency",
+		newPaginatedTool("get_vehicles_for_agency",
 			mcp.WithDescription("Get real-time positions and status of every active vehicle for an agency. Use ONLY when the user explicitly asks for the whole agency fleet or all buses running; for buses approaching a specific stop, use get_arrivals_for_stop instead."),
 			mcp.WithString("agency_id", mcp.Required(), mcp.Description("Agency ID (e.g. 'unitrans')")),
+			mcp.WithOutputSchema[SuccessEnvelope[Page[VehicleResponse]]](),
 		),
 		h.getVehiclesForAgency,
 	)
 
 	s.AddTool(
-		mcp.NewTool("get_trips_for_location",
+		newPaginatedTool("get_trips_for_location",
 			mcp.WithDescription("Get active trips near GPS coordinates. Useful for finding buses currently operating in an area."),
 			mcp.WithNumber("lat", mcp.Required(), mcp.Description("Latitude")),
 			mcp.WithNumber("lon", mcp.Required(), mcp.Description("Longitude")),
 			mcp.WithNumber("radius", mcp.Description("Search radius in meters: 1-5000 (default: 500)")),
+			mcp.WithOutputSchema[SuccessEnvelope[Page[VehicleResponse]]](),
 		),
 		h.getTripsForLocation,
 	)
@@ -140,7 +146,7 @@ func (h *Handler) getTrip(ctx context.Context, req mcp.CallToolRequest) (*mcp.Ca
 		return toResult(textResult(fmt.Sprintf("No trip found with ID %q.", tripID))), nil
 	}
 
-	return toResult(dataResult(fmt.Sprintf("Trip %s:\n", tripID), TripResponse{ID: entry.ID, RouteID: entry.RouteID, Headsign: entry.TripHeadsign, DirectionID: entry.DirectionID, ServiceID: entry.ServiceID})), nil
+	return toResult(withCache(dataResult(fmt.Sprintf("Trip %s:\n", tripID), TripResponse{ID: entry.ID, RouteID: entry.RouteID, Headsign: entry.TripHeadsign, DirectionID: entry.DirectionID, ServiceID: entry.ServiceID}), string(resp.CacheState))), nil
 }
 
 func (h *Handler) getTripDetails(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -177,7 +183,7 @@ func (h *Handler) getTripDetails(ctx context.Context, req mcp.CallToolRequest) (
 
 	detail := tripDetailsResponse(entry, resp.Data.References.Trips, tripID)
 
-	return toResult(dataResult(fmt.Sprintf("Trip details for %s:\n", tripID), detail)), nil
+	return toResult(withCache(dataResult(fmt.Sprintf("Trip details for %s:\n", tripID), detail), string(resp.CacheState))), nil
 }
 
 func (h *Handler) getTripForVehicle(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -204,11 +210,15 @@ func (h *Handler) getTripForVehicle(ctx context.Context, req mcp.CallToolRequest
 
 	v := vehicleResponse(entry, resp.Data.References.Trips)
 
-	return toResult(dataResult(fmt.Sprintf("Current trip for vehicle %s:\n", vehicleID), v)), nil
+	return toResult(withCache(dataResult(fmt.Sprintf("Current trip for vehicle %s:\n", vehicleID), v), string(resp.CacheState))), nil
 }
 
 func (h *Handler) getVehiclesForAgency(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	agencyID, err := entityIDArgument(req, "agency_id")
+	if err != nil {
+		return toResult(errorResult(err.Error())), nil
+	}
+	offset, limit, err := pageArguments(req, "get_vehicles_for_agency", 50)
 	if err != nil {
 		return toResult(errorResult(err.Error())), nil
 	}
@@ -227,17 +237,16 @@ func (h *Handler) getVehiclesForAgency(ctx context.Context, req mcp.CallToolRequ
 		results = append(results, vehicleStatusResponse(vehicle))
 	}
 
-	total := len(results)
-	note := ""
-	if total > 50 {
-		note = fmt.Sprintf(" (capped at 50; %d active)", total)
-		results = results[:50]
-	}
-	return toResult(dataResult(fmt.Sprintf("Active vehicles for agency %s (%d shown%s):\n", agencyID, len(results), note), results)), nil
+	page, truncated := paginate("get_vehicles_for_agency", results, offset, limit)
+	return toResult(withCache(dataResultWithTruncation(fmt.Sprintf("Active vehicles for agency %s (%d shown):\n", agencyID, len(page.Items)), page, truncated), string(resp.CacheState))), nil
 }
 
 func (h *Handler) getTripsForLocation(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	lat, lon, err := requiredCoordinates(req)
+	if err != nil {
+		return toResult(errorResult(err.Error())), nil
+	}
+	offset, limit, err := pageArguments(req, "get_trips_for_location", 20)
 	if err != nil {
 		return toResult(errorResult(err.Error())), nil
 	}
@@ -266,13 +275,8 @@ func (h *Handler) getTripsForLocation(ctx context.Context, req mcp.CallToolReque
 		results = append(results, vehicleResponse(client.TripDetails{TripID: trip.TripID, Status: trip.Status, Trip: trip.Trip}, nil))
 	}
 
-	total := len(results)
-	note := ""
-	if total > 20 {
-		note = fmt.Sprintf(" (capped at 20; %d in area)", total)
-		results = results[:20]
-	}
-	return toResult(dataResult(fmt.Sprintf("Active trips near (%.4f, %.4f) — %d shown%s:\n", lat, lon, len(results), note), results)), nil
+	page, truncated := paginate("get_trips_for_location", results, offset, limit)
+	return toResult(withCache(dataResultWithTruncation(fmt.Sprintf("Active trips near (%.4f, %.4f) — %d shown:\n", lat, lon, len(page.Items)), page, truncated), string(resp.CacheState))), nil
 }
 
 func (h *Handler) getBlock(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -303,5 +307,5 @@ func (h *Handler) getBlock(ctx context.Context, req mcp.CallToolRequest) (*mcp.C
 		}
 		output.Configurations = append(output.Configurations, response)
 	}
-	return toResult(dataResult(fmt.Sprintf("Block %s configurations:\n", blockID), output)), nil
+	return toResult(withCache(dataResult(fmt.Sprintf("Block %s configurations:\n", blockID), output), string(resp.CacheState))), nil
 }

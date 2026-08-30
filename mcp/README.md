@@ -32,6 +32,7 @@ docker compose up -d
 | `OBA_BASE_URL` | `http://localhost:4000` | OBA-compatible API URL |
 | `OBA_API_KEY` | required | OBA API key; inject it from a deployment secret |
 | `OBA_TRANSPORT` | `stdio` | `stdio` (MCP clients) or `http` (web/HTTP clients) |
+| `OBA_TOOL_PROFILE` | `all` | `all` exposes all 29 tools; `rider` exposes the 14 common passenger tools |
 | `OBA_PORT` | `8080` | Port for HTTP mode |
 | `OBA_HTTP_BIND_ADDR` | `127.0.0.1` | HTTP listener address; use a private network address for a gateway deployment |
 | `OBA_HTTP_AUTH_TOKEN` | required in HTTP mode | Secret shared only by the MCP server and its authentication gateway |
@@ -128,7 +129,12 @@ rebinding protection remains enabled. Keep `OBA_HTTP_AUTH_TOKEN` and
 `OBA_API_KEY` in the deployment secret manager; never put either in Compose,
 source control, browser storage, or tool output.
 
-## Tools (29 total)
+## Tools
+
+The default `all` profile exposes the full 29-tool catalog below, including
+advanced operations such as shapes, raw ID enumeration, metadata, and fleet
+queries. Set `OBA_TOOL_PROFILE=rider` to expose only the 14 passenger-facing
+tools.
 
 ### Agencies
 | Tool | Description |

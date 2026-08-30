@@ -12,18 +12,20 @@ import (
 // ListResponse and EntryResponse mirror Maglev's typed /api/where envelope.
 // They intentionally contain only fields used by oba-mcp.
 type ListResponse[T any] struct {
-	Code int    `json:"code"`
-	Text string `json:"text"`
-	Data struct {
+	CacheState CacheState `json:"-"`
+	Code       int        `json:"code"`
+	Text       string     `json:"text"`
+	Data       struct {
 		List       []T        `json:"list"`
 		References References `json:"references"`
 	} `json:"data"`
 }
 
 type EntryResponse[T any] struct {
-	Code int    `json:"code"`
-	Text string `json:"text"`
-	Data struct {
+	CacheState CacheState `json:"-"`
+	Code       int        `json:"code"`
+	Text       string     `json:"text"`
+	Data       struct {
 		Entry      T          `json:"entry"`
 		References References `json:"references"`
 	} `json:"data"`
@@ -214,6 +216,7 @@ type CurrentTime struct {
 	ReadableTime string `json:"readableTime"`
 }
 type Metadata struct {
+	CacheState            CacheState           `json:"-"`
 	StaticGTFSLastUpdated *time.Time           `json:"staticGtfsLastUpdated"`
 	RealtimeFeeds         map[string]time.Time `json:"realtimeFeeds"`
 }
@@ -334,16 +337,27 @@ func (c *OBAClient) GetMetadata(ctx context.Context) (Metadata, error) {
 	return response, err
 }
 
+type cacheStateSetter interface {
+	setCacheState(CacheState)
+}
+
+func (r *ListResponse[T]) setCacheState(state CacheState)  { r.CacheState = state }
+func (r *EntryResponse[T]) setCacheState(state CacheState) { r.CacheState = state }
+func (r *Metadata) setCacheState(state CacheState)         { r.CacheState = state }
+
 func (c *OBAClient) getTyped(ctx context.Context, path string, params url.Values, target any) error {
 	// Keep all transport, cache, and circuit-breaker behavior centralized
 	// in Get. A typed DTO is then decoded at this boundary, so tool handlers
 	// never interact with untyped API values.
-	response, err := c.Get(ctx, path, params)
+	response, cacheState, err := c.GetWithCacheState(ctx, path, params)
 	if err != nil {
 		return err
 	}
 	if err := json.Unmarshal(response, target); err != nil {
 		return fmt.Errorf("parsing JSON: %w", err)
+	}
+	if responseWithCacheState, ok := target.(cacheStateSetter); ok {
+		responseWithCacheState.setCacheState(cacheState)
 	}
 	var status envelopeStatus
 	if err := json.Unmarshal(response, &status); err != nil {

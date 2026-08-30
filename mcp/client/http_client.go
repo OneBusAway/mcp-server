@@ -62,6 +62,14 @@ const (
 	ErrorResponseTooLarge ErrorCode = "UPSTREAM_RESPONSE_TOO_LARGE"
 )
 
+// CacheState is the safe cache provenance exposed to tool results.
+type CacheState string
+
+const (
+	CacheHit  CacheState = "hit"
+	CacheMiss CacheState = "miss"
+)
+
 // UpstreamError classifies failures without including upstream internals.
 type UpstreamError struct {
 	Code          ErrorCode
@@ -72,8 +80,18 @@ type UpstreamError struct {
 }
 
 func (e *UpstreamError) Error() string {
+	details := ""
 	if e.Retryable {
-		return string(e.Code) + " (retryable)"
+		details = "retryable"
+	}
+	if e.RetryAfter > 0 {
+		if details != "" {
+			details += "; "
+		}
+		details += fmt.Sprintf("retry_after_ms=%d", e.RetryAfter.Milliseconds())
+	}
+	if details != "" {
+		return string(e.Code) + " (" + details + ")"
 	}
 	return string(e.Code)
 }
@@ -252,8 +270,15 @@ func (c *OBAClient) waitForInFlight(ctx context.Context, call *inFlightRequest) 
 // Get makes a context-aware GET request to path with the given query params.
 // The cache key excludes the API key so credentials never enter memory or SQLite.
 func (c *OBAClient) Get(ctx context.Context, path string, params url.Values) (json.RawMessage, error) {
+	data, _, err := c.GetWithCacheState(ctx, path, params)
+	return data, err
+}
+
+// GetWithCacheState makes a context-aware GET request and reports only whether
+// the response came from a cache, without disclosing cache implementation details.
+func (c *OBAClient) GetWithCacheState(ctx context.Context, path string, params url.Values) (json.RawMessage, CacheState, error) {
 	if err := ctx.Err(); err != nil {
-		return nil, upstreamError(ErrorCancelled, false, err)
+		return nil, CacheMiss, upstreamError(ErrorCancelled, false, err)
 	}
 	query := cloneValues(params)
 	key := cacheKey(path, query)
@@ -262,16 +287,17 @@ func (c *OBAClient) Get(ctx context.Context, path string, params url.Values) (js
 	now := time.Now()
 	if result, ok := c.memoryCacheGet(key, now); ok {
 		c.logRequest(op, "hit", 0, len(result), nil)
-		return result, nil
+		return result, CacheHit, nil
 	}
 	if result, ok := c.loadPersistentCache(ctx, key, now); ok {
 		c.logRequest(op, "l2-hit", 0, len(result), nil)
-		return result, nil
+		return result, CacheHit, nil
 	}
 
 	call, leader := c.beginInFlight(key)
 	if !leader {
-		return c.waitForInFlight(ctx, call)
+		result, err := c.waitForInFlight(ctx, call)
+		return result, CacheMiss, err
 	}
 	result, err := c.fetch(ctx, path, query, op)
 	if err == nil && cacheableResponse(result) {
@@ -283,7 +309,7 @@ func (c *OBAClient) Get(ctx context.Context, path string, params url.Values) (js
 		}
 	}
 	c.finishInFlight(key, call, result, err)
-	return result, err
+	return result, CacheMiss, err
 }
 
 func cacheableResponse(data json.RawMessage) bool {

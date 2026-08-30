@@ -13,9 +13,10 @@ import (
 
 func (h *Handler) registerStopTools(s *server.MCPServer) {
 	s.AddTool(
-		mcp.NewTool("get_stop_ids_for_agency",
+		newPaginatedTool("get_stop_ids_for_agency",
 			mcp.WithDescription("Get a flat list of all stop IDs for an agency. Useful when you need to enumerate stop IDs programmatically. Use get_stops_for_agency if you also need names and locations."),
 			mcp.WithString("agency_id", mcp.Required(), mcp.Description("Agency ID (e.g. 'unitrans')")),
+			mcp.WithOutputSchema[SuccessEnvelope[Page[string]]](),
 		),
 		h.getStopIDsForAgency,
 	)
@@ -24,21 +25,23 @@ func (h *Handler) registerStopTools(s *server.MCPServer) {
 		mcp.NewTool("get_stop",
 			mcp.WithDescription("Look up a stop by ID and return its name, location, direction, and routes. Use this when you already have a stop_id — faster than searching. IDs look like 'unitrans_22274'."),
 			mcp.WithString("stop_id", mcp.Required(), mcp.Description("Stop ID (e.g. 'unitrans_22274')")),
+			mcp.WithOutputSchema[SuccessEnvelope[StopResponse]](),
 		),
 		h.getStop,
 	)
 
 	s.AddTool(
-		mcp.NewTool("search_stops",
+		newPaginatedTool("search_stops",
 			mcp.WithDescription("Search stops by name or street keyword. Use when you don't have a stop_id yet. Returns matching stops with their IDs."),
 			mcp.WithString("query", mcp.Required(), mcp.Description("Stop name, street, or code to search for")),
 			mcp.WithNumber("max_count", mcp.Description("Max results to return: 1-20 (default: 5)")),
+			mcp.WithOutputSchema[SuccessEnvelope[Page[StopResponse]]](),
 		),
 		h.searchStops,
 	)
 
 	s.AddTool(
-		mcp.NewTool("find_stops_near_location",
+		newPaginatedTool("find_stops_near_location",
 			mcp.WithDescription("Find transit stops near GPS coordinates. Returns nearby stop IDs, names, directions, and routes."),
 			mcp.WithNumber("lat", mcp.Required(), mcp.Description("Latitude")),
 			mcp.WithNumber("lon", mcp.Required(), mcp.Description("Longitude")),
@@ -46,14 +49,16 @@ func (h *Handler) registerStopTools(s *server.MCPServer) {
 			mcp.WithNumber("lat_span", mcp.Description("Bounding-box latitude span: >0 and ≤180 (alternative to radius)")),
 			mcp.WithNumber("lon_span", mcp.Description("Bounding-box longitude span: >0 and ≤180 (alternative to radius)")),
 			mcp.WithNumber("max_count", mcp.Description("Max stops to return (default: 10, max: 20). Pass the number the user asked for.")),
+			mcp.WithOutputSchema[SuccessEnvelope[Page[StopResponse]]](),
 		),
 		h.findStopsNearLocation,
 	)
 
 	s.AddTool(
-		mcp.NewTool("get_stops_for_agency",
+		newPaginatedTool("get_stops_for_agency",
 			mcp.WithDescription("List stops operated by an agency. Returns up to 50 by default — use find_stops_near_location to filter by area."),
 			mcp.WithString("agency_id", mcp.Required(), mcp.Description("Agency ID (e.g. 'unitrans')")),
+			mcp.WithOutputSchema[SuccessEnvelope[Page[StopResponse]]](),
 		),
 		h.getStopsForAgency,
 	)
@@ -63,6 +68,7 @@ func (h *Handler) registerStopTools(s *server.MCPServer) {
 			mcp.WithDescription("Get the full day schedule for a stop grouped by route and direction, with trip_id per departure. Note: some trips may be missing if the backend omits a direction grouping — use get_arrivals_for_stop with a time= window for guaranteed completeness at a specific hour."),
 			mcp.WithString("stop_id", mcp.Required(), mcp.Description("Stop ID (e.g. 'unitrans_22274')")),
 			mcp.WithString("date", mcp.Description("Agency-local service date in strict YYYY-MM-DD format (defaults to today)")),
+			mcp.WithOutputSchema[SuccessEnvelope[StopScheduleResponse]](),
 		),
 		h.getStopSchedule,
 	)
@@ -86,7 +92,7 @@ func (h *Handler) getStop(ctx context.Context, req mcp.CallToolRequest) (*mcp.Ca
 		return toResult(textResult(fmt.Sprintf("No stop found with ID %q.", stopID))), nil
 	}
 
-	return toResult(dataResult(fmt.Sprintf("Stop %s:\n", stopID), stopFromDTO(resp.Data.Entry))), nil
+	return toResult(withCache(dataResult(fmt.Sprintf("Stop %s:\n", stopID), stopFromDTO(resp.Data.Entry)), string(resp.CacheState))), nil
 }
 
 func (h *Handler) searchStops(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -98,10 +104,14 @@ func (h *Handler) searchStops(ctx context.Context, req mcp.CallToolRequest) (*mc
 	if err != nil {
 		return toResult(errorResult(err.Error())), nil
 	}
+	offset, limit, err := pageArguments(req, "search_stops", maxCount)
+	if err != nil {
+		return toResult(errorResult(err.Error())), nil
+	}
 
 	params := url.Values{
 		"input":    {query},
-		"maxCount": {fmt.Sprintf("%d", maxCount)},
+		"maxCount": {fmt.Sprintf("%d", maximumPageSize)},
 	}
 
 	resp, err := h.client.SearchStops(ctx, params)
@@ -117,11 +127,8 @@ func (h *Handler) searchStops(ctx context.Context, req mcp.CallToolRequest) (*mc
 	for _, stop := range list {
 		results = append(results, stopFromDTO(stop))
 	}
-	if len(results) > maxCount {
-		results = results[:maxCount]
-	}
-
-	return toResult(dataResult(fmt.Sprintf("Found %d stops matching %q:\n", len(results), query), results)), nil
+	page, truncated := paginate("search_stops", results, offset, limit)
+	return toResult(withCache(dataResultWithTruncation(fmt.Sprintf("Found %d stops matching %q:\n", len(page.Items), query), page, truncated), string(resp.CacheState))), nil
 }
 
 func (h *Handler) findStopsNearLocation(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -142,6 +149,10 @@ func (h *Handler) findStopsNearLocation(ctx context.Context, req mcp.CallToolReq
 		return toResult(errorResult(err.Error())), nil
 	}
 	maxCount, err := optionalLimit(req, "max_count", 10, 20)
+	if err != nil {
+		return toResult(errorResult(err.Error())), nil
+	}
+	offset, limit, err := pageArguments(req, "find_stops_near_location", maxCount)
 	if err != nil {
 		return toResult(errorResult(err.Error())), nil
 	}
@@ -181,17 +192,16 @@ func (h *Handler) findStopsNearLocation(ctx context.Context, req mcp.CallToolReq
 		results = append(results, stopFromDTO(stop))
 	}
 
-	total := len(results)
-	note := ""
-	if total > maxCount {
-		note = fmt.Sprintf(" (showing %d of %d in area)", maxCount, total)
-		results = results[:maxCount]
-	}
-	return toResult(dataResult(fmt.Sprintf("Found %d stops near (%.4f, %.4f)%s:\n", len(results), lat, lon, note), results)), nil
+	page, truncated := paginate("find_stops_near_location", results, offset, limit)
+	return toResult(withCache(dataResultWithTruncation(fmt.Sprintf("Found %d stops near (%.4f, %.4f):\n", len(page.Items), lat, lon), page, truncated), string(resp.CacheState))), nil
 }
 
 func (h *Handler) getStopsForAgency(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	agencyID, err := entityIDArgument(req, "agency_id")
+	if err != nil {
+		return toResult(errorResult(err.Error())), nil
+	}
+	offset, limit, err := pageArguments(req, "get_stops_for_agency", 50)
 	if err != nil {
 		return toResult(errorResult(err.Error())), nil
 	}
@@ -206,13 +216,8 @@ func (h *Handler) getStopsForAgency(ctx context.Context, req mcp.CallToolRequest
 		results = append(results, stopFromDTO(stop))
 	}
 
-	total := len(results)
-	note := ""
-	if total > 50 {
-		note = fmt.Sprintf(" (showing 50 of %d — use find_stops_near_location to filter by area)", total)
-		results = results[:50]
-	}
-	return toResult(dataResult(fmt.Sprintf("Stops for agency %s (%d shown%s):\n", agencyID, len(results), note), results)), nil
+	page, truncated := paginate("get_stops_for_agency", results, offset, limit)
+	return toResult(withCache(dataResultWithTruncation(fmt.Sprintf("Stops for agency %s (%d shown):\n", agencyID, len(page.Items)), page, truncated), string(resp.CacheState))), nil
 }
 
 func (h *Handler) getStopSchedule(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -238,17 +243,21 @@ func (h *Handler) getStopSchedule(ctx context.Context, req mcp.CallToolRequest) 
 		return toResult(textResult("No schedule data found for this stop.")), nil
 	}
 
-	return toResult(dataResult("", stopScheduleResponse(stopID, resp.Data.Entry))), nil
+	loc := h.client.TimezoneFor(ctx, client.AgencyIDFromEntityID(stopID))
+	return toResult(withCache(dataResult("", stopScheduleResponse(stopID, resp.Data.Entry, loc)), string(resp.CacheState))), nil
 }
 
-func stopScheduleResponse(stopID string, entry client.ScheduleForStop) StopScheduleResponse {
+func stopScheduleResponse(stopID string, entry client.ScheduleForStop, loc *time.Location) StopScheduleResponse {
+	if loc == nil {
+		loc = time.UTC
+	}
 	dateMs := entry.Date
 	dateStr := ""
 	if dateMs > 0 {
-		dateStr = time.UnixMilli(int64(dateMs)).Format("2006-01-02")
+		dateStr = time.UnixMilli(int64(dateMs)).In(loc).Format("2006-01-02")
 	}
 
-	out := StopScheduleResponse{StopID: stopID, Date: dateStr}
+	out := StopScheduleResponse{StopID: stopID, DateMS: dateMs, DateDisplay: dateStr, Timezone: loc.String()}
 
 	for _, routeSchedule := range entry.StopRouteSchedules {
 		rs := RouteScheduleResponse{RouteID: routeSchedule.RouteID}
@@ -262,8 +271,9 @@ func stopScheduleResponse(stopID string, entry client.ScheduleForStop) StopSched
 					continue
 				}
 				ds.Trips = append(ds.Trips, ScheduledTripResponse{
-					TripID:    st.TripID,
-					Departure: time.UnixMilli(int64(depMs)).Format("3:04 PM"),
+					TripID:           st.TripID,
+					DepartureMS:      depMs,
+					DepartureDisplay: time.UnixMilli(int64(depMs)).In(loc).Format("3:04 PM"),
 				})
 			}
 			rs.Directions = append(rs.Directions, ds)
@@ -279,6 +289,10 @@ func (h *Handler) getStopIDsForAgency(ctx context.Context, req mcp.CallToolReque
 	if err != nil {
 		return toResult(errorResult(err.Error())), nil
 	}
+	offset, limit, err := pageArguments(req, "get_stop_ids_for_agency", 50)
+	if err != nil {
+		return toResult(errorResult(err.Error())), nil
+	}
 
 	resp, err := h.client.StopIDsForAgency(ctx, agencyID)
 	if err != nil {
@@ -286,11 +300,6 @@ func (h *Handler) getStopIDsForAgency(ctx context.Context, req mcp.CallToolReque
 	}
 	ids := StopIDsResponse(append([]string(nil), resp.Data.List...))
 
-	total := len(ids)
-	note := ""
-	if total > 100 {
-		note = fmt.Sprintf(" (showing 100 of %d)", total)
-		ids = ids[:100]
-	}
-	return toResult(dataResult(fmt.Sprintf("Stop IDs for agency %s (%d shown%s):\n", agencyID, len(ids), note), ids)), nil
+	page, truncated := paginate("get_stop_ids_for_agency", []string(ids), offset, limit)
+	return toResult(withCache(dataResultWithTruncation(fmt.Sprintf("Stop IDs for agency %s (%d shown):\n", agencyID, len(page.Items)), page, truncated), string(resp.CacheState))), nil
 }

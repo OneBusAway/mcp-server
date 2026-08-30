@@ -13,9 +13,10 @@ import (
 
 func (h *Handler) registerRouteTools(s *server.MCPServer) {
 	s.AddTool(
-		mcp.NewTool("get_route_ids_for_agency",
+		newPaginatedTool("get_route_ids_for_agency",
 			mcp.WithDescription("Get a flat list of all route IDs for an agency. Use get_routes_for_agency if you also need names and details."),
 			mcp.WithString("agency_id", mcp.Required(), mcp.Description("Agency ID (e.g. 'unitrans')")),
+			mcp.WithOutputSchema[SuccessEnvelope[Page[string]]](),
 		),
 		h.getRouteIDsForAgency,
 	)
@@ -24,6 +25,7 @@ func (h *Handler) registerRouteTools(s *server.MCPServer) {
 		mcp.NewTool("get_shape",
 			mcp.WithDescription("Get the encoded polyline shape for a GTFS shape ID. Returns the path geometry a vehicle follows. Shape IDs come from trip details or stop-times data."),
 			mcp.WithString("shape_id", mcp.Required(), mcp.Description("GTFS shape ID")),
+			mcp.WithOutputSchema[SuccessEnvelope[ShapeResponse]](),
 		),
 		h.getShape,
 	)
@@ -32,35 +34,39 @@ func (h *Handler) registerRouteTools(s *server.MCPServer) {
 		mcp.NewTool("get_route",
 			mcp.WithDescription("Get details for a single route by ID: short name, long name, agency, color. Use when you already have a route_id."),
 			mcp.WithString("route_id", mcp.Required(), mcp.Description("Route ID (e.g. 'unitrans_E')")),
+			mcp.WithOutputSchema[SuccessEnvelope[RouteResponse]](),
 		),
 		h.getRoute,
 	)
 
 	s.AddTool(
-		mcp.NewTool("search_routes",
+		newPaginatedTool("search_routes",
 			mcp.WithDescription("Search routes by number or name (e.g. 'E', 'express'). Returns matching route IDs and names. Use this to find a route_id when you only have a name."),
 			mcp.WithString("query", mcp.Required(), mcp.Description("Route number or name to search for")),
 			mcp.WithNumber("max_count", mcp.Description("Max results to return: 1-20 (default: 5)")),
+			mcp.WithOutputSchema[SuccessEnvelope[Page[RouteResponse]]](),
 		),
 		h.searchRoutes,
 	)
 
 	s.AddTool(
-		mcp.NewTool("get_routes_for_agency",
+		newPaginatedTool("get_routes_for_agency",
 			mcp.WithDescription("List routes operated by an agency. Returns up to 30 by default."),
 			mcp.WithString("agency_id", mcp.Required(), mcp.Description("Agency ID (e.g. 'unitrans')")),
+			mcp.WithOutputSchema[SuccessEnvelope[Page[RouteResponse]]](),
 		),
 		h.getRoutesForAgency,
 	)
 
 	s.AddTool(
-		mcp.NewTool("get_routes_for_location",
+		newPaginatedTool("get_routes_for_location",
 			mcp.WithDescription("Find routes that serve an area near GPS coordinates."),
 			mcp.WithNumber("lat", mcp.Required(), mcp.Description("Latitude")),
 			mcp.WithNumber("lon", mcp.Required(), mcp.Description("Longitude")),
 			mcp.WithNumber("radius", mcp.Description("Search radius in meters: 1-5000 (default: 500)")),
 			mcp.WithNumber("lat_span", mcp.Description("Bounding-box latitude span: >0 and ≤180 (alternative to radius)")),
 			mcp.WithNumber("lon_span", mcp.Description("Bounding-box longitude span: >0 and ≤180 (alternative to radius)")),
+			mcp.WithOutputSchema[SuccessEnvelope[Page[RouteResponse]]](),
 		),
 		h.getRoutesForLocation,
 	)
@@ -69,17 +75,19 @@ func (h *Handler) registerRouteTools(s *server.MCPServer) {
 		mcp.NewTool("get_stops_for_route",
 			mcp.WithDescription("Get all stops on a route, organized by direction (inbound/outbound)."),
 			mcp.WithString("route_id", mcp.Required(), mcp.Description("Route ID (e.g. 'unitrans_E')")),
+			mcp.WithOutputSchema[SuccessEnvelope[RouteStopsResponse]](),
 		),
 		h.getStopsForRoute,
 	)
 
 	s.AddTool(
-		mcp.NewTool("get_trips_for_route",
+		newPaginatedTool("get_trips_for_route",
 			mcp.WithDescription("Get active trips currently running on a route, with real-time status and vehicle info."),
 			mcp.WithString("route_id", mcp.Required(), mcp.Description("Route ID (e.g. 'unitrans_E')")),
 			mcp.WithNumber("time", mcp.Description("Query trips at a Unix epoch millisecond timestamp through 2100")),
 			mcp.WithBoolean("include_schedule", mcp.Description("Include full stop schedule in response (default true)")),
 			mcp.WithBoolean("include_status", mcp.Description("Include real-time status in response (default true)")),
+			mcp.WithOutputSchema[SuccessEnvelope[Page[RouteTripResponse]]](),
 		),
 		h.getTripsForRoute,
 	)
@@ -89,6 +97,7 @@ func (h *Handler) registerRouteTools(s *server.MCPServer) {
 			mcp.WithDescription("Get the structure of a route's schedule for a date: directions, trip IDs, and stop order. Does not include per-stop departure times (use get_stop_schedule for a stop's timetable with times). Use this to answer 'what trips run on route E?' or 'how many trips does route L have?'"),
 			mcp.WithString("route_id", mcp.Required(), mcp.Description("Route ID (e.g. 'unitrans_E')")),
 			mcp.WithString("date", mcp.Description("Agency-local service date in strict YYYY-MM-DD format (defaults to today)")),
+			mcp.WithOutputSchema[SuccessEnvelope[RouteScheduleStructureResponse]](),
 		),
 		h.getScheduleForRoute,
 	)
@@ -114,7 +123,7 @@ func (h *Handler) getRoute(ctx context.Context, req mcp.CallToolRequest) (*mcp.C
 		return toResult(textResult(fmt.Sprintf("No route found with ID %q.", routeID))), nil
 	}
 
-	return toResult(dataResult(fmt.Sprintf("Route %s:\n", routeID), routeFromDTO(resp.Data.Entry))), nil
+	return toResult(withCache(dataResult(fmt.Sprintf("Route %s:\n", routeID), routeFromDTO(resp.Data.Entry)), string(resp.CacheState))), nil
 }
 
 func (h *Handler) searchRoutes(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -126,10 +135,14 @@ func (h *Handler) searchRoutes(ctx context.Context, req mcp.CallToolRequest) (*m
 	if err != nil {
 		return toResult(errorResult(err.Error())), nil
 	}
+	offset, limit, err := pageArguments(req, "search_routes", maxCount)
+	if err != nil {
+		return toResult(errorResult(err.Error())), nil
+	}
 
 	params := url.Values{
 		"input":    {query},
-		"maxCount": {fmt.Sprintf("%d", maxCount)},
+		"maxCount": {fmt.Sprintf("%d", maximumPageSize)},
 	}
 
 	resp, err := h.client.SearchRoutes(ctx, params)
@@ -145,15 +158,16 @@ func (h *Handler) searchRoutes(ctx context.Context, req mcp.CallToolRequest) (*m
 	for _, route := range list {
 		results = append(results, routeFromDTO(route))
 	}
-	if len(results) > maxCount {
-		results = results[:maxCount]
-	}
-
-	return toResult(dataResult(fmt.Sprintf("Found %d routes matching %q:\n", len(results), query), results)), nil
+	page, truncated := paginate("search_routes", results, offset, limit)
+	return toResult(withCache(dataResultWithTruncation(fmt.Sprintf("Found %d routes matching %q:\n", len(page.Items), query), page, truncated), string(resp.CacheState))), nil
 }
 
 func (h *Handler) getRoutesForAgency(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	agencyID, err := entityIDArgument(req, "agency_id")
+	if err != nil {
+		return toResult(errorResult(err.Error())), nil
+	}
+	offset, limit, err := pageArguments(req, "get_routes_for_agency", 30)
 	if err != nil {
 		return toResult(errorResult(err.Error())), nil
 	}
@@ -168,17 +182,16 @@ func (h *Handler) getRoutesForAgency(ctx context.Context, req mcp.CallToolReques
 		results = append(results, routeFromDTO(route))
 	}
 
-	total := len(results)
-	note := ""
-	if total > 30 {
-		note = fmt.Sprintf(" (showing 30 of %d — search by name for a specific route)", total)
-		results = results[:30]
-	}
-	return toResult(dataResult(fmt.Sprintf("Routes for agency %s (%d shown%s):\n", agencyID, len(results), note), results)), nil
+	page, truncated := paginate("get_routes_for_agency", results, offset, limit)
+	return toResult(withCache(dataResultWithTruncation(fmt.Sprintf("Routes for agency %s (%d shown):\n", agencyID, len(page.Items)), page, truncated), string(resp.CacheState))), nil
 }
 
 func (h *Handler) getRoutesForLocation(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	lat, lon, err := requiredCoordinates(req)
+	if err != nil {
+		return toResult(errorResult(err.Error())), nil
+	}
+	offset, limit, err := pageArguments(req, "get_routes_for_location", 20)
 	if err != nil {
 		return toResult(errorResult(err.Error())), nil
 	}
@@ -230,13 +243,8 @@ func (h *Handler) getRoutesForLocation(ctx context.Context, req mcp.CallToolRequ
 		results = append(results, routeFromDTO(route))
 	}
 
-	total := len(results)
-	note := ""
-	if total > 20 {
-		note = fmt.Sprintf(" (capped at 20; %d near that location)", total)
-		results = results[:20]
-	}
-	return toResult(dataResult(fmt.Sprintf("Found %d routes near (%.4f, %.4f)%s:\n", len(results), lat, lon, note), results)), nil
+	page, truncated := paginate("get_routes_for_location", results, offset, limit)
+	return toResult(withCache(dataResultWithTruncation(fmt.Sprintf("Found %d routes near (%.4f, %.4f):\n", len(page.Items), lat, lon), page, truncated), string(resp.CacheState))), nil
 }
 
 func (h *Handler) getStopsForRoute(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -260,6 +268,7 @@ func (h *Handler) getStopsForRoute(ctx context.Context, req mcp.CallToolRequest)
 	}
 
 	var groups []RouteDirectionStopsResponse
+	truncated := false
 	for _, grouping := range entry.StopGroupings {
 		for _, group := range grouping.StopGroups {
 			stops := make([]StopResponse, 0, len(group.StopIDs))
@@ -269,6 +278,7 @@ func (h *Handler) getStopsForRoute(ctx context.Context, req mcp.CallToolRequest)
 			}
 			dirNote := ""
 			if len(stops) > 30 {
+				truncated = true
 				dirNote = fmt.Sprintf(" [first 30 of %d]", len(stops))
 				stops = stops[:30]
 			}
@@ -289,11 +299,15 @@ func (h *Handler) getStopsForRoute(ctx context.Context, req mcp.CallToolRequest)
 		}
 	}
 
-	return toResult(dataResult(fmt.Sprintf("Stops for route %s:\n", routeID), RouteStopsResponse{Directions: groups, Polylines: polylines})), nil
+	return toResult(withCache(dataResultWithTruncation(fmt.Sprintf("Stops for route %s:\n", routeID), RouteStopsResponse{Directions: groups, Polylines: polylines}, truncated), string(resp.CacheState))), nil
 }
 
 func (h *Handler) getTripsForRoute(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	routeID, err := entityIDArgument(req, "route_id")
+	if err != nil {
+		return toResult(errorResult(err.Error())), nil
+	}
+	offset, limit, err := pageArguments(req, "get_trips_for_route", 20)
 	if err != nil {
 		return toResult(errorResult(err.Error())), nil
 	}
@@ -341,13 +355,8 @@ func (h *Handler) getTripsForRoute(ctx context.Context, req mcp.CallToolRequest)
 		results = append(results, out)
 	}
 
-	total := len(results)
-	note := ""
-	if total > 20 {
-		note = fmt.Sprintf(" (capped at 20; %d active)", total)
-		results = results[:20]
-	}
-	return toResult(dataResult(fmt.Sprintf("Active trips for route %s (%d shown%s):\n", routeID, len(results), note), results)), nil
+	page, truncated := paginate("get_trips_for_route", results, offset, limit)
+	return toResult(withCache(dataResultWithTruncation(fmt.Sprintf("Active trips for route %s (%d shown):\n", routeID, len(page.Items)), page, truncated), string(resp.CacheState))), nil
 }
 
 func (h *Handler) getScheduleForRoute(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -374,9 +383,11 @@ func (h *Handler) getScheduleForRoute(ctx context.Context, req mcp.CallToolReque
 		return toResult(textResult("No schedule data found for this route.")), nil
 	}
 
-	result := RouteScheduleStructureResponse{RouteID: routeID}
+	loc := h.client.TimezoneFor(ctx, client.AgencyIDFromEntityID(routeID))
+	result := RouteScheduleStructureResponse{RouteID: routeID, Timezone: loc.String()}
 	if d := entry.ScheduleDate; d > 0 {
-		result.Date = time.UnixMilli(int64(d)).Format("2006-01-02")
+		result.DateMS = d
+		result.DateDisplay = time.UnixMilli(int64(d)).In(loc).Format("2006-01-02")
 	}
 
 	for _, grp := range entry.StopTripGroupings {
@@ -388,11 +399,15 @@ func (h *Handler) getScheduleForRoute(ctx context.Context, req mcp.CallToolReque
 		result.Directions = append(result.Directions, dir)
 	}
 
-	return toResult(dataResultWithSuffix(fmt.Sprintf("Route schedule structure for %s:\n", routeID), result, "\nFor departure times at a specific stop, use get_stop_schedule.")), nil
+	return toResult(withCache(dataResultWithSuffix(fmt.Sprintf("Route schedule structure for %s:\n", routeID), result, "\nFor departure times at a specific stop, use get_stop_schedule."), string(resp.CacheState))), nil
 }
 
 func (h *Handler) getRouteIDsForAgency(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	agencyID, err := entityIDArgument(req, "agency_id")
+	if err != nil {
+		return toResult(errorResult(err.Error())), nil
+	}
+	offset, limit, err := pageArguments(req, "get_route_ids_for_agency", 50)
 	if err != nil {
 		return toResult(errorResult(err.Error())), nil
 	}
@@ -403,7 +418,8 @@ func (h *Handler) getRouteIDsForAgency(ctx context.Context, req mcp.CallToolRequ
 	}
 	ids := RouteIDsResponse(append([]string(nil), resp.Data.List...))
 
-	return toResult(dataResult(fmt.Sprintf("Route IDs for agency %s (%d total):\n", agencyID, len(ids)), ids)), nil
+	page, truncated := paginate("get_route_ids_for_agency", []string(ids), offset, limit)
+	return toResult(withCache(dataResultWithTruncation(fmt.Sprintf("Route IDs for agency %s (%d shown):\n", agencyID, len(page.Items)), page, truncated), string(resp.CacheState))), nil
 }
 
 func (h *Handler) getShape(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -420,5 +436,5 @@ func (h *Handler) getShape(ctx context.Context, req mcp.CallToolRequest) (*mcp.C
 		return toResult(textResult(fmt.Sprintf("No shape found with ID %q.", shapeID))), nil
 	}
 
-	return toResult(dataResult(fmt.Sprintf("Shape %s:\n", shapeID), ShapeResponse{Points: resp.Data.Entry.Points, Length: resp.Data.Entry.Length})), nil
+	return toResult(withCache(dataResult(fmt.Sprintf("Shape %s:\n", shapeID), ShapeResponse{Points: resp.Data.Entry.Points, Length: resp.Data.Entry.Length}), string(resp.CacheState))), nil
 }

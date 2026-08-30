@@ -15,6 +15,7 @@ func (h *Handler) registerOverviewTools(s *server.MCPServer) {
 		mcp.NewTool("get_stop_overview",
 			mcp.WithDescription("Get a quick summary of a stop: name, location, routes serving it, and the next 5 arrivals in the next 30 minutes. Use this for 'what's at stop X?' or 'what's coming soon?' — replaces the common pattern of get_stop + get_arrivals_for_stop."),
 			mcp.WithString("stop_id", mcp.Required(), mcp.Description("Stop ID (e.g. 'unitrans_22274')")),
+			mcp.WithOutputSchema[SuccessEnvelope[StopOverviewResponse]](),
 		),
 		h.getStopOverview,
 	)
@@ -65,5 +66,5 @@ func (h *Handler) getStopOverview(ctx context.Context, req mcp.CallToolRequest) 
 		overview.Next = append(overview.Next, arrivalResponse(arrival, loc))
 	}
 
-	return toResult(dataResult(fmt.Sprintf("Overview for stop %s:\n", stopID), overview)), nil
+	return toResult(withCache(dataResult(fmt.Sprintf("Overview for stop %s:\n", stopID), overview), string(resp.CacheState))), nil
 }

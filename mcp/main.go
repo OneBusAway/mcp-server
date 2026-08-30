@@ -56,15 +56,19 @@ func main() {
 	}
 
 	obaClient := client.New(baseURL, apiKey, appLogger, db)
+	toolProfile, err := tools.ParseToolProfile(envOrDefault("OBA_TOOL_PROFILE", string(tools.ToolProfileAll)))
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	s := server.NewMCPServer("OBA Transit Assistant", "1.0.0",
 		server.WithToolCapabilities(true),
 		server.WithPromptCapabilities(true),
 	)
-	tools.RegisterAll(s, obaClient)
+	tools.RegisterProfile(s, obaClient, toolProfile)
 	tools.RegisterPrompts(s)
 
-	appLogger.Printf(`{"event":"start","target":%q}`, baseURL)
+	appLogger.Printf(`{"event":"start","target":%q,"tool_profile":%q}`, baseURL, toolProfile)
 
 	transport := envOrDefault("OBA_TRANSPORT", "stdio")
 	if transport == "http" {

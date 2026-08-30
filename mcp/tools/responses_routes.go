@@ -45,9 +45,11 @@ type RouteScheduleDirectionResponse struct {
 }
 
 type RouteScheduleStructureResponse struct {
-	RouteID    string                           `json:"route_id"`
-	Date       string                           `json:"date,omitempty"`
-	Directions []RouteScheduleDirectionResponse `json:"directions"`
+	RouteID     string                           `json:"route_id"`
+	DateMS      int64                            `json:"date_ms,omitempty"`
+	DateDisplay string                           `json:"date_display,omitempty"`
+	Timezone    string                           `json:"timezone"`
+	Directions  []RouteScheduleDirectionResponse `json:"directions"`
 }
 
 type ShapeResponse struct {

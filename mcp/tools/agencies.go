@@ -11,8 +11,9 @@ import (
 
 func (h *Handler) registerAgencyTools(s *server.MCPServer) {
 	s.AddTool(
-		mcp.NewTool("get_agencies",
+		newPaginatedTool("get_agencies",
 			mcp.WithDescription("List all transit agencies in this system with coverage area. Call this first when you don't know the agency_id."),
+			mcp.WithOutputSchema[SuccessEnvelope[Page[AgencySummary]]](),
 		),
 		h.getAgencies,
 	)
@@ -21,18 +22,23 @@ func (h *Handler) registerAgencyTools(s *server.MCPServer) {
 		mcp.NewTool("get_agency",
 			mcp.WithDescription("Get details for a single agency by ID: name, timezone, phone, URL."),
 			mcp.WithString("agency_id", mcp.Required(), mcp.Description("Agency ID (e.g. 'unitrans')")),
+			mcp.WithOutputSchema[SuccessEnvelope[AgencyResponse]](),
 		),
 		h.getAgency,
 	)
 }
 
 func (h *Handler) getAgencies(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	offset, limit, err := pageArguments(req, "get_agencies", 20)
+	if err != nil {
+		return toResult(errorResult(err.Error())), nil
+	}
 	resp, err := h.client.GetAgencies(ctx)
 	if err != nil {
 		return toResult(errorResult(err.Error())), nil
 	}
 	if resp.Code != 200 {
-		return toResult(errorResult(resp.Text)), nil
+		return toResult(errorResult("UPSTREAM_BAD_RESPONSE")), nil
 	}
 	if len(resp.Data.List) == 0 {
 		return toResult(textResult("No agencies found.")), nil
@@ -54,7 +60,8 @@ func (h *Handler) getAgencies(ctx context.Context, req mcp.CallToolRequest) (*mc
 		})
 	}
 
-	return toResult(dataResult(fmt.Sprintf("Found %d agencies:\n", len(results)), results)), nil
+	page, truncated := paginate("get_agencies", results, offset, limit)
+	return toResult(withCache(dataResultWithTruncation(fmt.Sprintf("Found %d agencies:\n", len(page.Items)), page, truncated), string(resp.CacheState))), nil
 }
 
 func (h *Handler) getAgency(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -68,14 +75,14 @@ func (h *Handler) getAgency(ctx context.Context, req mcp.CallToolRequest) (*mcp.
 		return toResult(errorResult(err.Error())), nil
 	}
 	if resp.Code != 200 {
-		return toResult(errorResult(resp.Text)), nil
+		return toResult(errorResult("UPSTREAM_BAD_RESPONSE")), nil
 	}
 	entry := resp.Data.Entry
 	if entry.ID == "" {
 		return toResult(textResult(fmt.Sprintf("No agency found with ID %q.", agencyID))), nil
 	}
 
-	return toResult(dataResult(fmt.Sprintf("Agency %s:\n", agencyID), AgencyResponse{
+	return toResult(withCache(dataResult(fmt.Sprintf("Agency %s:\n", agencyID), AgencyResponse{
 		ID: entry.ID, Name: entry.Name, URL: entry.URL, Phone: entry.Phone, Timezone: entry.Timezone,
-	})), nil
+	}), string(resp.CacheState))), nil
 }

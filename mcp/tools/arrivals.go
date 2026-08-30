@@ -19,23 +19,25 @@ func (h *Handler) registerArrivalTools(s *server.MCPServer) {
 			mcp.WithString("trip_id", mcp.Required(), mcp.Description("Trip ID (e.g. 'unitrans_12345')")),
 			mcp.WithNumber("service_date", mcp.Required(), mcp.Description("Service date as a Unix epoch millisecond timestamp through 2100")),
 			mcp.WithString("vehicle_id", mcp.Description("Optional vehicle ID to disambiguate")),
+			mcp.WithOutputSchema[SuccessEnvelope[ArrivalResponse]](),
 		),
 		h.getArrivalAndDepartureForStop,
 	)
 
 	s.AddTool(
-		mcp.NewTool("get_arrivals_for_stop",
+		newPaginatedTool("get_arrivals_for_stop",
 			mcp.WithDescription("Get arrivals and departures at a stop. Returns up to 10 arrivals in the next 30 minutes by default. Pass 'time' (epoch ms) to query at a specific moment (e.g. 7 AM). Pass 'minutes_after' to widen or narrow the window. Real-time predictions only available near current time."),
 			mcp.WithString("stop_id", mcp.Required(), mcp.Description("Stop ID (e.g. 'unitrans_22274')")),
 			mcp.WithNumber("minutes_before", mcp.Description("Minutes in the past to include: 0-120 (default: 0)")),
 			mcp.WithNumber("minutes_after", mcp.Description("Minutes ahead to include: 0-120 (default: 30)")),
 			mcp.WithNumber("time", mcp.Description("Optional Unix epoch millisecond timestamp through 2100; defaults to now")),
+			mcp.WithOutputSchema[SuccessEnvelope[Page[ArrivalResponse]]](),
 		),
 		h.getArrivalsForStop,
 	)
 
 	s.AddTool(
-		mcp.NewTool("get_arrivals_for_location",
+		newPaginatedTool("get_arrivals_for_location",
 			mcp.WithDescription("Get real-time arrivals and departures for all stops within a radius of GPS coordinates. Returns the same arrival detail as get_arrivals_for_stop but for every nearby stop at once. Useful for 'what buses are near me right now?' Returns up to 10 arrivals."),
 			mcp.WithNumber("lat", mcp.Required(), mcp.Description("Latitude")),
 			mcp.WithNumber("lon", mcp.Required(), mcp.Description("Longitude")),
@@ -43,29 +45,48 @@ func (h *Handler) registerArrivalTools(s *server.MCPServer) {
 			mcp.WithNumber("minutes_before", mcp.Description("Minutes in the past to include: 0-120 (default: 0)")),
 			mcp.WithNumber("minutes_after", mcp.Description("Minutes ahead to include: 0-120 (default: 35)")),
 			mcp.WithNumber("time", mcp.Description("Optional Unix epoch millisecond timestamp through 2100; defaults to now")),
+			mcp.WithOutputSchema[SuccessEnvelope[Page[ArrivalResponse]]](),
 		),
 		h.getArrivalsForLocation,
 	)
 }
 
 func arrivalResponse(arrival client.ArrivalAndDeparture, loc *time.Location) ArrivalResponse {
-	result := ArrivalResponse{TripID: arrival.TripID, ServiceDate: arrival.ServiceDate, RouteID: arrival.RouteID, RouteName: arrival.RouteShortName, Headsign: arrival.TripHeadsign, Status: arrival.Status, VehicleID: arrival.VehicleID, Predicted: arrival.Predicted, DistanceFromStop: arrival.DistanceFromStop}
+	if loc == nil {
+		loc = time.UTC
+	}
+	result := ArrivalResponse{
+		TripID:               arrival.TripID,
+		ServiceDateMS:        arrival.ServiceDate,
+		RouteID:              arrival.RouteID,
+		RouteName:            arrival.RouteShortName,
+		Headsign:             arrival.TripHeadsign,
+		Status:               arrival.Status,
+		VehicleID:            arrival.VehicleID,
+		Predicted:            arrival.Predicted,
+		DistanceFromStop:     arrival.DistanceFromStop,
+		Timezone:             loc.String(),
+		ScheduledArrivalMS:   arrival.ScheduledArrivalTime,
+		ScheduledDepartureMS: arrival.ScheduledDepartureTime,
+	}
 	if arrival.NumberOfStopsAway > 0 {
 		value := arrival.NumberOfStopsAway
 		result.NumberOfStopsAway = &value
 	}
 	if arrival.ScheduledArrivalTime > 0 {
-		result.ScheduledArrival = client.FormatRelativeTime(float64(arrival.ScheduledArrivalTime), loc)
+		result.ScheduledArrivalDisplay = client.FormatRelativeTime(float64(arrival.ScheduledArrivalTime), loc)
 	}
 	if arrival.ScheduledDepartureTime > 0 {
-		result.ScheduledDeparture = client.FormatRelativeTime(float64(arrival.ScheduledDepartureTime), loc)
+		result.ScheduledDepartureDisplay = client.FormatRelativeTime(float64(arrival.ScheduledDepartureTime), loc)
 	}
 	if result.Predicted {
+		result.PredictedArrivalMS = arrival.PredictedArrivalTime
+		result.PredictedDepartureMS = arrival.PredictedDepartureTime
 		if arrival.PredictedArrivalTime > 0 {
-			result.PredictedArrival = client.FormatRelativeTime(float64(arrival.PredictedArrivalTime), loc)
+			result.PredictedArrivalDisplay = client.FormatRelativeTime(float64(arrival.PredictedArrivalTime), loc)
 		}
 		if arrival.PredictedDepartureTime > 0 {
-			result.PredictedDeparture = client.FormatRelativeTime(float64(arrival.PredictedDepartureTime), loc)
+			result.PredictedDepartureDisplay = client.FormatRelativeTime(float64(arrival.PredictedDepartureTime), loc)
 		}
 		if arrival.TripStatus != nil {
 			result.VehicleBearing = arrival.TripStatus.Orientation
@@ -88,6 +109,10 @@ func arrivalResponses(arrivals []client.ArrivalAndDeparture, loc *time.Location)
 
 func (h *Handler) getArrivalsForStop(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	stopID, err := entityIDArgument(req, "stop_id")
+	if err != nil {
+		return toResult(errorResult(err.Error())), nil
+	}
+	offset, limit, err := pageArguments(req, "get_arrivals_for_stop", 10)
 	if err != nil {
 		return toResult(errorResult(err.Error())), nil
 	}
@@ -124,13 +149,8 @@ func (h *Handler) getArrivalsForStop(ctx context.Context, req mcp.CallToolReques
 
 	results := arrivalResponses(entry.ArrivalsAndDepartures, loc)
 
-	total := len(results)
-	note := ""
-	if total > 10 {
-		note = fmt.Sprintf(" (capped at 10; %d in window — pass a shorter minutes_after to see fewer)", total)
-		results = results[:10]
-	}
-	return toResult(dataResult(fmt.Sprintf("Arrivals at stop %s (%d shown%s):\n", stopID, len(results), note), results)), nil
+	page, truncated := paginate("get_arrivals_for_stop", results, offset, limit)
+	return toResult(withCache(dataResultWithTruncation(fmt.Sprintf("Arrivals at stop %s (%d shown):\n", stopID, len(page.Items)), page, truncated), string(resp.CacheState))), nil
 }
 
 func (h *Handler) getArrivalAndDepartureForStop(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -170,11 +190,15 @@ func (h *Handler) getArrivalAndDepartureForStop(ctx context.Context, req mcp.Cal
 
 	ar := arrivalResponse(entry, loc)
 
-	return toResult(dataResult(fmt.Sprintf("Arrival for trip %s at stop %s:\n", tripID, stopID), ar)), nil
+	return toResult(withCache(dataResult(fmt.Sprintf("Arrival for trip %s at stop %s:\n", tripID, stopID), ar), string(resp.CacheState))), nil
 }
 
 func (h *Handler) getArrivalsForLocation(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	lat, lon, err := requiredCoordinates(req)
+	if err != nil {
+		return toResult(errorResult(err.Error())), nil
+	}
+	offset, limit, err := pageArguments(req, "get_arrivals_for_location", 10)
 	if err != nil {
 		return toResult(errorResult(err.Error())), nil
 	}
@@ -194,7 +218,7 @@ func (h *Handler) getArrivalsForLocation(ctx context.Context, req mcp.CallToolRe
 	params := url.Values{
 		"lat":           {fmt.Sprintf("%f", lat)},
 		"lon":           {fmt.Sprintf("%f", lon)},
-		"maxCount":      {"10"},
+		"maxCount":      {fmt.Sprintf("%d", maximumPageSize)},
 		"radius":        {fmt.Sprintf("%d", radius)},
 		"minutesBefore": {fmt.Sprintf("%d", minutesBefore)},
 		"minutesAfter":  {fmt.Sprintf("%d", minutesAfter)},
@@ -226,9 +250,6 @@ func (h *Handler) getArrivalsForLocation(ctx context.Context, req mcp.CallToolRe
 		}
 	}
 	results := arrivalResponses(entry.ArrivalsAndDepartures, loc)
-	if len(results) > 10 {
-		results = results[:10]
-	}
-
-	return toResult(dataResult(fmt.Sprintf("Arrivals near (%.4f, %.4f) — %d shown:\n", lat, lon, len(results)), results)), nil
+	page, truncated := paginate("get_arrivals_for_location", results, offset, limit)
+	return toResult(withCache(dataResultWithTruncation(fmt.Sprintf("Arrivals near (%.4f, %.4f) — %d shown:\n", lat, lon, len(page.Items)), page, truncated), string(resp.CacheState))), nil
 }
