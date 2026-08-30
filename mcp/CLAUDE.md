@@ -71,7 +71,7 @@ GOCACHE=/tmp/oba-mcp-go-cache go build ./...
 | `OBA_BASE_URL` | `http://localhost:4000` | OBA-compatible API URL |
 | `OBA_API_KEY` | required | API key; inject from a secret manager |
 | `OBA_TRANSPORT` | `stdio` | `stdio` or `http` |
-| `OBA_TOOL_PROFILE` | `all` | `all` exposes all 29 tools; `rider` exposes the 14 passenger workflows |
+| `OBA_TOOL_PROFILE` | `all` | `all` exposes all 29 tools; `rider` exposes 16 passenger workflows |
 | `OBA_PORT` | `8080` | HTTP listener port |
 | `OBA_HTTP_BIND_ADDR` | `127.0.0.1` | HTTP listener address |
 | `OBA_HTTP_AUTH_TOKEN` | required in HTTP mode | private gateway-to-MCP bearer token |
@@ -173,7 +173,7 @@ IDs 100. Indicate truncation when a result is capped.
 
 Static data such as agencies, routes, stops, shapes, and schedules is cached
 for 60 minutes and may persist in SQLite. Real-time arrivals, vehicle/trip
-status, and current time are cached for 30 seconds in memory only.
+status, and current time are cached for 15 seconds in memory only.
 
 Logs rotate at 10 MB, retain three compressed files for seven days, and are
 human-readable by default. Set `OBA_LOG_JSON=1` for log aggregation.

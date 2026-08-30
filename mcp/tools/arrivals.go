@@ -69,10 +69,12 @@ func arrivalResponse(arrival client.ArrivalAndDeparture, loc *time.Location) Arr
 		ScheduledArrivalMS:   arrival.ScheduledArrivalTime,
 		ScheduledDepartureMS: arrival.ScheduledDepartureTime,
 	}
-	if arrival.NumberOfStopsAway > 0 {
-		value := arrival.NumberOfStopsAway
-		result.NumberOfStopsAway = &value
-	}
+	// Pass through stops_away only when OBA explicitly supplied it.
+	// A nil pointer means the field was absent in the API response; a pointer
+	// to 0 means the bus is genuinely at the stop. Merging these would cause
+	// the tracker to fire an "arriving" notification for trips where the field
+	// was simply omitted.
+	result.NumberOfStopsAway = arrival.NumberOfStopsAway
 	if arrival.ScheduledArrivalTime > 0 {
 		result.ScheduledArrivalDisplay = client.FormatRelativeTime(float64(arrival.ScheduledArrivalTime), loc)
 	}

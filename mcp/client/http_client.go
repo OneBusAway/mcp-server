@@ -22,7 +22,7 @@ import (
 
 const (
 	staticTTL   = 60 * time.Minute
-	realtimeTTL = 30 * time.Second
+	realtimeTTL = 15 * time.Second
 
 	maxResponseBytes   = 2 << 20 // 2 MiB maximum accepted payload.
 	maxMemoryCacheSize = 512

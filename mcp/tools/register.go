@@ -26,8 +26,6 @@ var advancedToolNames = []string{
 	"get_stop_ids_for_agency",
 	"get_stop_schedule",
 	"get_stops_for_agency",
-	"get_stops_for_route",
-	"get_trip_details",
 	"get_trip_for_vehicle",
 	"get_trips_for_location",
 	"get_trips_for_route",

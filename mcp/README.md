@@ -133,7 +133,7 @@ source control, browser storage, or tool output.
 
 The default `all` profile exposes the full 29-tool catalog below, including
 advanced operations such as shapes, raw ID enumeration, metadata, and fleet
-queries. Set `OBA_TOOL_PROFILE=rider` to expose only the 14 passenger-facing
+queries. Set `OBA_TOOL_PROFILE=rider` to expose only the 16 passenger-facing
 tools.
 
 ### Agencies

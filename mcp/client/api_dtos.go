@@ -131,7 +131,7 @@ type ArrivalAndDeparture struct {
 	VehicleID              string      `json:"vehicleId"`
 	Predicted              bool        `json:"predicted"`
 	DistanceFromStop       float64     `json:"distanceFromStop"`
-	NumberOfStopsAway      int         `json:"numberOfStopsAway"`
+	NumberOfStopsAway      *int        `json:"numberOfStopsAway"`
 	ScheduledArrivalTime   int64       `json:"scheduledArrivalTime"`
 	ScheduledDepartureTime int64       `json:"scheduledDepartureTime"`
 	PredictedArrivalTime   int64       `json:"predictedArrivalTime"`
