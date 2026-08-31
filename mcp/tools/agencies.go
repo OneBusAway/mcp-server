@@ -41,7 +41,7 @@ func (h *Handler) getAgencies(ctx context.Context, req mcp.CallToolRequest) (*mc
 		return toResult(errorResult("UPSTREAM_BAD_RESPONSE")), nil
 	}
 	if len(resp.Data.List) == 0 {
-		return toResult(textResult("No agencies found.")), nil
+		return toResult(withCache(dataResult("No agencies found.", Page[AgencySummary]{Items: []AgencySummary{}}), string(resp.CacheState))), nil
 	}
 
 	// Agency details (name, url, etc.) live in references, keyed by id

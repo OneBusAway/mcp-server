@@ -229,7 +229,7 @@ func (h *Handler) getVehiclesForAgency(ctx context.Context, req mcp.CallToolRequ
 	}
 	list := resp.Data.List
 	if len(list) == 0 {
-		return toResult(textResult(fmt.Sprintf("No active vehicles for agency %s.", agencyID))), nil
+		return toResult(withCache(dataResult(fmt.Sprintf("No active vehicles for agency %s.", agencyID), Page[VehicleResponse]{Items: []VehicleResponse{}}), string(resp.CacheState))), nil
 	}
 
 	results := make([]VehicleResponse, 0, len(list))
@@ -267,7 +267,7 @@ func (h *Handler) getTripsForLocation(ctx context.Context, req mcp.CallToolReque
 	}
 	list := resp.Data.List
 	if len(list) == 0 {
-		return toResult(textResult("No active trips found near that location.")), nil
+		return toResult(withCache(dataResult("No active trips found near that location.", Page[VehicleResponse]{Items: []VehicleResponse{}}), string(resp.CacheState))), nil
 	}
 
 	results := make([]VehicleResponse, 0, len(list))

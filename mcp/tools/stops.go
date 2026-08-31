@@ -120,7 +120,7 @@ func (h *Handler) searchStops(ctx context.Context, req mcp.CallToolRequest) (*mc
 	}
 	list := resp.Data.List
 	if len(list) == 0 {
-		return toResult(textResult(fmt.Sprintf("No stops found matching %q.", query))), nil
+		return toResult(withCache(dataResult(fmt.Sprintf("No stops found matching %q.", query), Page[StopResponse]{Items: []StopResponse{}}), string(resp.CacheState))), nil
 	}
 
 	results := make([]StopResponse, 0, len(list))
@@ -184,7 +184,7 @@ func (h *Handler) findStopsNearLocation(ctx context.Context, req mcp.CallToolReq
 	}
 	list := resp.Data.List
 	if len(list) == 0 {
-		return toResult(textResult("No stops found within the specified radius.")), nil
+		return toResult(withCache(dataResult("No stops found within the specified radius.", Page[StopResponse]{Items: []StopResponse{}}), string(resp.CacheState))), nil
 	}
 
 	results := make([]StopResponse, 0, len(list))

@@ -151,7 +151,7 @@ func (h *Handler) searchRoutes(ctx context.Context, req mcp.CallToolRequest) (*m
 	}
 	list := resp.Data.List
 	if len(list) == 0 {
-		return toResult(textResult(fmt.Sprintf("No routes found matching %q.", query))), nil
+		return toResult(withCache(dataResult(fmt.Sprintf("No routes found matching %q.", query), Page[RouteResponse]{Items: []RouteResponse{}}), string(resp.CacheState))), nil
 	}
 
 	results := make([]RouteResponse, 0, len(list))
@@ -235,7 +235,7 @@ func (h *Handler) getRoutesForLocation(ctx context.Context, req mcp.CallToolRequ
 	}
 	list := resp.Data.List
 	if len(list) == 0 {
-		return toResult(textResult("No routes found near that location.")), nil
+		return toResult(withCache(dataResult("No routes found near that location.", Page[RouteResponse]{Items: []RouteResponse{}}), string(resp.CacheState))), nil
 	}
 
 	results := make([]RouteResponse, 0, len(list))
@@ -335,7 +335,7 @@ func (h *Handler) getTripsForRoute(ctx context.Context, req mcp.CallToolRequest)
 	}
 	list := resp.Data.List
 	if len(list) == 0 {
-		return toResult(textResult(fmt.Sprintf("No active trips found for route %s.", routeID))), nil
+		return toResult(withCache(dataResult(fmt.Sprintf("No active trips found for route %s.", routeID), Page[RouteTripResponse]{Items: []RouteTripResponse{}}), string(resp.CacheState))), nil
 	}
 
 	results := make([]RouteTripResponse, 0, len(list))

@@ -97,17 +97,9 @@ func serveHTTP(mcpServer *server.MCPServer, appLogger *log.Logger) error {
 	}
 
 	addr := net.JoinHostPort(envOrDefault("OBA_HTTP_BIND_ADDR", "127.0.0.1"), envOrDefault("OBA_PORT", "8080"))
-	mcpHTTPServer := server.NewStreamableHTTPServer(mcpServer,
-		server.WithStreamableHTTPCORS(
-			server.WithCORSAllowedOrigins(origins...),
-			server.WithCORSAllowedMethods(http.MethodGet, http.MethodPost, http.MethodDelete, http.MethodOptions),
-			server.WithCORSAllowedHeaders("Content-Type", "Mcp-Session-Id", "Last-Event-ID", "Authorization"),
-			server.WithCORSExposedHeaders("Mcp-Session-Id"),
-			server.WithCORSMaxAge(600),
-		),
-	)
+	httpHandler := newProtectedMCPHTTPHandler(mcpServer, origins, token)
 	mux := http.NewServeMux()
-	mux.Handle("/mcp", protectedHTTPHandler(mcpHTTPServer, origins, token))
+	mux.Handle("/mcp", httpHandler)
 	httpServer := &http.Server{
 		Addr:              addr,
 		Handler:           mux,
@@ -117,6 +109,22 @@ func serveHTTP(mcpServer *server.MCPServer, appLogger *log.Logger) error {
 	}
 	appLogger.Printf(`{"event":"http","addr":%q}`, addr)
 	return httpServer.ListenAndServe()
+}
+
+// newProtectedMCPHTTPHandler builds the complete HTTP transport used in
+// production. Keeping it separate from the listener makes the authenticated
+// MCP boundary testable without opening a network port.
+func newProtectedMCPHTTPHandler(mcpServer *server.MCPServer, origins []string, token string) http.Handler {
+	mcpHTTPServer := server.NewStreamableHTTPServer(mcpServer,
+		server.WithStreamableHTTPCORS(
+			server.WithCORSAllowedOrigins(origins...),
+			server.WithCORSAllowedMethods(http.MethodGet, http.MethodPost, http.MethodDelete, http.MethodOptions),
+			server.WithCORSAllowedHeaders("Content-Type", "Mcp-Session-Id", "Last-Event-ID", "Authorization"),
+			server.WithCORSExposedHeaders("Mcp-Session-Id"),
+			server.WithCORSMaxAge(600),
+		),
+	)
+	return protectedHTTPHandler(mcpHTTPServer, origins, token)
 }
 
 func defaultCachePath() string {

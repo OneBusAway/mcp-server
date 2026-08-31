@@ -146,7 +146,7 @@ func (h *Handler) getArrivalsForStop(ctx context.Context, req mcp.CallToolReques
 	}
 
 	if len(entry.ArrivalsAndDepartures) == 0 {
-		return toResult(textResult(fmt.Sprintf("No upcoming arrivals at stop %s.", stopID))), nil
+		return toResult(withCache(dataResult(fmt.Sprintf("No upcoming arrivals at stop %s.", stopID), Page[ArrivalResponse]{Items: []ArrivalResponse{}}), string(resp.CacheState))), nil
 	}
 
 	results := arrivalResponses(entry.ArrivalsAndDepartures, loc)
@@ -241,7 +241,7 @@ func (h *Handler) getArrivalsForLocation(ctx context.Context, req mcp.CallToolRe
 	}
 
 	if len(entry.ArrivalsAndDepartures) == 0 {
-		return toResult(textResult("No upcoming arrivals near that location.")), nil
+		return toResult(withCache(dataResult("No upcoming arrivals near that location.", Page[ArrivalResponse]{Items: []ArrivalResponse{}}), string(resp.CacheState))), nil
 	}
 
 	var loc = h.client.TimezoneFor(ctx, "")
