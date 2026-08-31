@@ -40,19 +40,23 @@ func (pw *PrettyWriter) Write(p []byte) (int, error) {
 		cache, _ := m["cache"].(string)
 		ms, _ := m["ms"].(float64)
 		bytes, _ := m["bytes"].(float64)
+		params, _ := m["params"].(string)
 		errMsg, _ := m["error"].(string)
+		errCode, _ := m["error_code"].(string)
 		circuit, _ := m["circuit"].(string)
 
 		switch {
 		case errMsg != "":
-			fmt.Fprintf(pw.w, "%s [ERR]  %-42s %s\n", ts, op, errMsg)
+			fmt.Fprintf(pw.w, "%s [ERR]  %-42s %s%s\n", ts, op, errMsg, fmtParams(params))
+		case errCode != "":
+			fmt.Fprintf(pw.w, "%s [ERR]  %-42s %s%s\n", ts, op, errCode, fmtParams(params))
 		case circuit == "open":
 			retry, _ := m["retry_in_sec"].(float64)
 			fmt.Fprintf(pw.w, "%s [SKIP] %-42s circuit open (retry in %.0fs)\n", ts, op, retry)
 		case cache == "hit":
-			fmt.Fprintf(pw.w, "%s [HIT]  %s\n", ts, op)
+			fmt.Fprintf(pw.w, "%s [HIT]  %s%s\n", ts, op, fmtParams(params))
 		case cache == "l2-hit":
-			fmt.Fprintf(pw.w, "%s [L2]   %s\n", ts, op)
+			fmt.Fprintf(pw.w, "%s [L2]   %s%s\n", ts, op, fmtParams(params))
 		default:
 			extra := ""
 			if ms > 0 {
@@ -64,7 +68,7 @@ func (pw *PrettyWriter) Write(p []byte) (int, error) {
 				}
 				extra += fmtBytes(bytes)
 			}
-			fmt.Fprintf(pw.w, "%s [MISS] %-42s %s\n", ts, op, extra)
+			fmt.Fprintf(pw.w, "%s [MISS] %-42s %s%s\n", ts, op, extra, fmtParams(params))
 		}
 
 	case "circuit":
@@ -100,6 +104,13 @@ func (pw *PrettyWriter) Write(p []byte) (int, error) {
 	}
 
 	return len(p), nil
+}
+
+func fmtParams(params string) string {
+	if params == "" {
+		return ""
+	}
+	return "  params=" + params
 }
 
 func fmtBytes(b float64) string {

@@ -21,8 +21,10 @@ import (
 )
 
 const (
-	staticTTL   = 60 * time.Minute
-	realtimeTTL = 15 * time.Second
+	staticTTL = 60 * time.Minute
+	// Real-time responses are intentionally uncached. Concurrent identical calls
+	// are still coalesced through inflight, but every subsequent call reaches OBA.
+	realtimeTTL = 0 * time.Second
 
 	maxResponseBytes   = 2 << 20 // 2 MiB maximum accepted payload.
 	maxMemoryCacheSize = 512
@@ -301,13 +303,15 @@ func (c *OBAClient) GetWithCacheState(ctx context.Context, path string, params u
 	ttl := ttlForPath(path)
 	op := opFromPath(path)
 	now := c.clock()
-	if result, ok := c.memoryCacheGet(key, now); ok {
-		c.logRequest(op, "hit", 0, len(result), nil)
-		return result, CacheHit, nil
-	}
-	if result, ok := c.loadPersistentCache(ctx, key, now); ok {
-		c.logRequest(op, "l2-hit", 0, len(result), nil)
-		return result, CacheHit, nil
+	if ttl > 0 {
+		if result, ok := c.memoryCacheGet(key, now); ok {
+			c.logRequest(op, "hit", query.Encode(), 0, len(result), nil)
+			return result, CacheHit, nil
+		}
+		if result, ok := c.loadPersistentCache(ctx, key, now); ok {
+			c.logRequest(op, "l2-hit", query.Encode(), 0, len(result), nil)
+			return result, CacheHit, nil
+		}
 	}
 
 	call, leader := c.beginInFlight(key)
@@ -316,7 +320,7 @@ func (c *OBAClient) GetWithCacheState(ctx context.Context, path string, params u
 		return result, CacheMiss, err
 	}
 	result, err := c.fetch(ctx, path, query, op)
-	if err == nil && cacheableResponse(result) {
+	if ttl > 0 && err == nil && cacheableResponse(result) {
 		writeNow := c.clock()
 		expiresAt := writeNow.Add(ttl)
 		c.memoryCacheSet(key, result, expiresAt, writeNow)
@@ -351,6 +355,9 @@ func (c *OBAClient) fetch(ctx context.Context, path string, query url.Values, op
 		return nil, upstreamError(ErrorCancelled, false, ctx.Err())
 	}
 
+	// Capture loggable parameters before adding the API key. Credentials must
+	// never appear in logs.
+	logParams := query.Encode()
 	query.Set("key", c.apiKey)
 	requestURL, err := c.requestURL(path, query)
 	if err != nil {
@@ -367,7 +374,7 @@ func (c *OBAClient) fetch(ctx context.Context, path string, query url.Values, op
 		}
 		start := time.Now()
 		result, failure := c.doRequest(ctx, requestURL)
-		c.logRequest(op, "miss", time.Since(start).Milliseconds(), len(result), failure)
+		c.logRequest(op, "miss", logParams, time.Since(start).Milliseconds(), len(result), failure)
 		if failure == nil {
 			c.recordCircuitSuccess()
 			return result, nil
@@ -541,15 +548,15 @@ func (c *OBAClient) recordCircuitFailure(err *UpstreamError) {
 	}
 }
 
-func (c *OBAClient) logRequest(op, cache string, ms int64, bytes int, err *UpstreamError) {
+func (c *OBAClient) logRequest(op, cache, params string, ms int64, bytes int, err *UpstreamError) {
 	if c.logger == nil {
 		return
 	}
 	if err != nil {
-		c.logger.Printf(`{"event":"req","op":%q,"cache":%q,"ms":%d,"error_code":%q}`, op, cache, ms, err.Code)
+		c.logger.Printf(`{"event":"req","op":%q,"cache":%q,"params":%q,"ms":%d,"error_code":%q}`, op, cache, params, ms, err.Code)
 		return
 	}
-	c.logger.Printf(`{"event":"req","op":%q,"cache":%q,"ms":%d,"bytes":%d,"tokens":%d}`, op, cache, ms, bytes, bytes/4)
+	c.logger.Printf(`{"event":"req","op":%q,"cache":%q,"params":%q,"ms":%d,"bytes":%d,"tokens":%d}`, op, cache, params, ms, bytes, bytes/4)
 }
 
 // FormatRelativeTime formats a Unix millisecond timestamp relative to now in loc.

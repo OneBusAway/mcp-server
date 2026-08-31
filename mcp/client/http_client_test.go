@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -211,7 +212,7 @@ func TestGetWithCacheStateReportsHitAndMiss(t *testing.T) {
 	}))
 
 	for _, wantState := range []CacheState{CacheMiss, CacheHit} {
-		_, state, err := c.GetWithCacheState(context.Background(), "/api/where/current-time.json", nil)
+		_, state, err := c.GetWithCacheState(context.Background(), "/api/where/stop/test_1013.json", nil)
 		if err != nil {
 			t.Fatalf("GetWithCacheState returned error: %v", err)
 		}
@@ -266,7 +267,7 @@ func TestGetCoalescesConcurrentCacheMisses(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, err := c.Get(context.Background(), "/api/where/current-time.json", nil)
+			_, err := c.Get(context.Background(), "/api/where/stop/test_1013.json", nil)
 			errs <- err
 		}()
 	}
@@ -391,6 +392,44 @@ func TestTTLForPathSeparatesRealtimeAndStaticData(t *testing.T) {
 	}
 	if got := ttlForPath("/api/where/stop/test_1013.json"); got != staticTTL {
 		t.Fatalf("stop TTL = %s, want static TTL %s", got, staticTTL)
+	}
+}
+
+func TestRealtimeResponsesAreNotCached(t *testing.T) {
+	var upstreamCalls atomic.Int32
+	c := clientWithTransport(roundTripperFunc(func(*http.Request) (*http.Response, error) {
+		upstreamCalls.Add(1)
+		return jsonResponse(http.StatusOK, `{"code":200}`), nil
+	}))
+	path := "/api/where/arrivals-and-departures-for-stop/test_1013.json"
+	for range 2 {
+		if _, state, err := c.GetWithCacheState(context.Background(), path, nil); err != nil {
+			t.Fatalf("real-time Get returned error: %v", err)
+		} else if state != CacheMiss {
+			t.Fatalf("real-time cache state = %q, want %q", state, CacheMiss)
+		}
+	}
+	if got := upstreamCalls.Load(); got != 2 {
+		t.Fatalf("upstream calls = %d, want 2 with real-time cache disabled", got)
+	}
+}
+
+func TestRequestLogsIncludeParamsButExcludeAPIKey(t *testing.T) {
+	var logs bytes.Buffer
+	c := New("https://oba.test", "secret-api-key", log.New(&logs, "", 0), nil)
+	c.httpClient = &http.Client{Transport: roundTripperFunc(func(*http.Request) (*http.Response, error) {
+		return jsonResponse(http.StatusOK, `{"code":200}`), nil
+	})}
+	params := url.Values{"includeSchedule": {"false"}, "time": {"123"}}
+	if _, err := c.Get(context.Background(), "/api/where/trip-details/test_trip.json", params); err != nil {
+		t.Fatalf("Get returned error: %v", err)
+	}
+	got := logs.String()
+	if !strings.Contains(got, `"params":"includeSchedule=false&time=123"`) {
+		t.Fatalf("request log does not contain encoded params: %s", got)
+	}
+	if strings.Contains(got, "secret-api-key") || strings.Contains(got, `"key"`) {
+		t.Fatalf("request log exposed API key: %s", got)
 	}
 }
 

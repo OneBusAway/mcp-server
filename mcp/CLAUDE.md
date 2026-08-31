@@ -173,7 +173,8 @@ IDs 100. Indicate truncation when a result is capped.
 
 Static data such as agencies, routes, stops, shapes, and schedules is cached
 for 60 minutes and may persist in SQLite. Real-time arrivals, vehicle/trip
-status, and current time are cached for 15 seconds in memory only.
+status, and current time are not cached. Concurrent identical requests are still
+coalesced so they share one in-flight upstream call.
 
 Logs rotate at 10 MB, retain three compressed files for seven days, and are
 human-readable by default. Set `OBA_LOG_JSON=1` for log aggregation.

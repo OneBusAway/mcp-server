@@ -202,7 +202,7 @@ tools.
 | Data | TTL | Written to SQLite? |
 |---|---|---|
 | Static (agencies, routes, stops, shapes, schedules) | 60 min | Yes — persists across sessions |
-| Real-time (arrivals, vehicle positions, trip status) | 30 sec | No |
+| Real-time (arrivals, vehicle positions, trip status) | Disabled | No |
 
 ## Makefile
 
