@@ -24,7 +24,7 @@
 
 	function orderedToolCards(cards) {
 		const priority = (card) => {
-			if (['map', 'route_map', 'vehicle_map', 'arrivals_route_map', 'combined_map'].includes(card.type)) return 0;
+			if (['map_loading', 'map', 'route_map', 'vehicle_map', 'arrivals_route_map', 'combined_map'].includes(card.type)) return 0;
 			if (card.type === 'arrivals') return 1;
 			return 2;
 		};
@@ -109,9 +109,11 @@
 
 	// Scroll to bottom on new messages, loading, and every streaming text update
 	$effect(() => {
+		const lastCards = chat.messages.at(-1)?.toolCards ?? [];
 		const _ = chat.messages.length
 			+ (chat.loading   ? 1 : 0)
-			+ (chat.messages.at(-1)?.text?.length ?? 0); // re-runs on each streamed chunk
+			+ (chat.messages.at(-1)?.text?.length ?? 0)
+			+ lastCards.map((card) => card.type).join('|').length; // re-runs for streamed cards too
 		tick().then(() =>
 			bottomEl?.scrollIntoView({ behavior: chat.streaming ? 'instant' : 'smooth' })
 		);
@@ -244,11 +246,17 @@
 						<div class="flex-1 space-y-2">
 							<!-- Tool cards -->
 							{#each orderedToolCards(msg.toolCards ?? []) as card}
-								{#if card.type === 'map'}
-									<MapCard markers={card.markers} stopId={arrivalPanelStopId(msg)} />
+								{#if card.type === 'map_loading'}
+									<div class="flex h-[220px] items-center justify-center rounded-xl border border-zinc-200 bg-white/80 text-sm text-zinc-600 shadow-sm dark:border-zinc-700 dark:bg-zinc-950/80 dark:text-zinc-300" aria-live="polite">
+										<Icon name="loader" cls="mr-2 h-4 w-4 animate-spin text-oba-600" />
+										Loading map…
+									</div>
+
+								{:else if card.type === 'map'}
+									<MapCard markers={card.markers} stopId={arrivalPanelStopId(msg)} autoScroll={chat.streaming && i === chat.messages.length - 1} />
 
 								{:else if card.type === 'route_map'}
-									<MapCard routes={card.directions} markers={card.markers ?? []} stopId={arrivalPanelStopId(msg)} />
+									<MapCard routes={card.directions} markers={card.markers ?? []} stopId={arrivalPanelStopId(msg)} autoScroll={chat.streaming && i === chat.messages.length - 1} />
 
 								{:else if card.type === 'combined_map'}
 									<MapCard
@@ -258,12 +266,14 @@
 										stopId={arrivalPanelStopId(msg)}
 										vehicleTripIds={card.trip_ids ?? []}
 										tripInfo={card.trip_info ?? {}}
+										autoScroll={chat.streaming && i === chat.messages.length - 1}
 									/>
 
 								{:else if card.type === 'vehicle_map'}
 									<MapCard
 										vehicles={card.vehicles ?? []}
 										agencyId={card.agency_id ?? null}
+										autoScroll={chat.streaming && i === chat.messages.length - 1}
 									/>
 
 								{:else if card.type === 'arrivals_route_map'}
@@ -274,6 +284,7 @@
 										vehicleTripIds={card.trip_ids ?? []}
 										stopId={card.stop_id ?? null}
 										tripInfo={card.trip_info ?? {}}
+										autoScroll={chat.streaming && i === chat.messages.length - 1}
 									/>
 
 								{:else if card.type === 'route_suggestions'}

@@ -16,6 +16,18 @@ import {
 
 export { createMapState };
 
+const MAP_RENDERING_TOOLS = new Set([
+	'get_arrivals_for_stop',
+	'find_stops_near_location',
+	'search_stops',
+	'get_stop',
+	'get_stop_overview',
+	'get_stops_for_route',
+	'get_trips_for_route',
+	'get_trip_details',
+	'get_trips_for_location',
+]);
+
 /**
  * Call one MCP tool, emit any applicable SSE cards, and return the raw
  * result for the model's tool history.
@@ -29,6 +41,20 @@ export { createMapState };
  */
 export async function dispatchTool(name, input, controller, sse, mapState, emitted, mcp) {
 	const _e = emitted ?? { routeIds: new Set(), stopIds: new Set(), arrivalStopIds: new Set() };
+	if (name === 'get_arrivals_for_stop' && mapState.requiresStopChoice) {
+		return {
+			data: null,
+			clarification_required: true,
+			message: 'Multiple stops matched the search. Ask the user to choose a stop ID before requesting arrivals.',
+		};
+	}
+	// Map geometry is accumulated across tool calls and emitted once at the end
+	// of the turn. Tell the browser immediately so it can reserve the map space
+	// and show progress while those calls are still running.
+	if (MAP_RENDERING_TOOLS.has(name) && !_e.mapLoading) {
+		_e.mapLoading = true;
+		sse(controller, { t: 'card', v: { type: 'map_loading' } });
+	}
 	let result;
 	try {
 		result = await mcp.callTool(name, input);
@@ -42,12 +68,26 @@ export async function dispatchTool(name, input, controller, sse, mapState, emitt
 			const stops = list.length ? list : (Array.isArray(d) ? d : []);
 			if (stops.length) addMarkers(mapState, markCurrentStop(toMapMarkers(stops)));
 
-		} else if (name === 'search_stops') {
-			const stops = list.length ? list : (Array.isArray(d) ? d : []);
-			if (stops.length) addMarkers(mapState, markCurrentStop(toMapMarkers(stops)));
+			} else if (name === 'search_stops') {
+				const stops = list.length ? list : (Array.isArray(d) ? d : []);
+				if (stops.length) {
+					for (const stop of stops) {
+						if (stop?.id) mapState.stopsById.set(stop.id, stop);
+					}
+					addMarkers(mapState, markCurrentStop(toMapMarkers(stops)));
+				}
+				if (stops.length > 1) {
+					mapState.requiresStopChoice = true;
+					result = {
+						...result,
+						clarification_required: true,
+						model_instruction: 'Do not call another tool or choose the first result. Ask the user which listed stop ID they mean.',
+					};
+				}
 
-		} else if (name === 'get_stop' && d?.lat) {
-			addMarkers(mapState, [{ id: input.stop_id, lat: d.lat, lon: d.lon, name: d.name ?? input.stop_id, is_current: true }]);
+			} else if (name === 'get_stop' && d?.lat) {
+				mapState.stopsById.set(input.stop_id, { ...d, id: d.id ?? input.stop_id });
+				addMarkers(mapState, [{ id: input.stop_id, lat: d.lat, lon: d.lon, name: d.name ?? input.stop_id, is_current: true }]);
 
 		} else if (name === 'get_stop_overview') {
 			_handleStopOverview(input, d, controller, sse, mapState, _e);
@@ -110,7 +150,8 @@ export async function dispatchTool(name, input, controller, sse, mapState, emitt
 
 async function _handleArrivalsForStop(input, d, list, controller, sse, mapState, _e, mcp) {
 	const arrivals = normalizeArrivals(list.length ? list : (Array.isArray(d) ? d : []));
-	const stopName = input.stop_id;
+	const searchedStop = mapState.stopsById.get(input.stop_id);
+	const stopName = searchedStop?.name ?? input.stop_id;
 
 	if (arrivals.length && !_e.arrivalStopIds.has(input.stop_id)) {
 		sse(controller, { t: 'card', v: { type: 'arrivals', stop_id: input.stop_id, stop_name: stopName, arrivals } });
@@ -122,18 +163,16 @@ async function _handleArrivalsForStop(input, d, list, controller, sse, mapState,
 	const realtimeArrivals = arrivals.filter((a) => a.predicted && a.trip_id);
 	const vehicledArrivals = realtimeArrivals.filter((a) => a.vehicle_lat != null && a.vehicle_lon != null);
 	const routeIds = [...new Set(arrivals.map((a) => a.route_id).filter(Boolean))].slice(0, 3);
-	const realtimeTripIds = [...new Set(realtimeArrivals.map((a) => a.trip_id))].slice(0, 3);
-	const tripIDsForPosition = [...new Set(realtimeArrivals
-		.filter((arrival) => arrival.vehicle_lat == null || arrival.vehicle_lon == null)
-		.map((arrival) => arrival.trip_id))].slice(0, 3);
+	const realtimeTripIds = [...new Set(vehicledArrivals.map((a) => a.trip_id))].slice(0, 3);
+	const stopLookup = searchedStop
+		? Promise.resolve(searchedStop)
+		: mcp.callTool('get_stop', { stop_id: input.stop_id });
 	const lookupResults = await Promise.allSettled([
-		mcp.callTool('get_stop', { stop_id: input.stop_id }),
+		stopLookup,
 		...routeIds.map((route_id) => mcp.callTool('get_stops_for_route', { route_id })),
-		...tripIDsForPosition.map((trip_id) => mcp.callTool('get_trip_details', { trip_id, include_schedule: false })),
 	]);
 	const [stopRes] = lookupResults;
 	const routeResults = lookupResults.slice(1, 1 + routeIds.length);
-	const tripResults = lookupResults.slice(1 + routeIds.length);
 
 	let stopLat = null, stopLon = null;
 	if (stopRes.status === 'fulfilled') {
@@ -141,6 +180,7 @@ async function _handleArrivalsForStop(input, d, list, controller, sse, mapState,
 		if (stopData?.lat != null && stopData?.lon != null) {
 			stopLat = stopData.lat;
 			stopLon = stopData.lon;
+			mapState.stopsById.set(input.stop_id, { ...stopData, id: stopData.id ?? input.stop_id });
 		}
 	}
 
@@ -168,24 +208,6 @@ async function _handleArrivalsForStop(input, d, list, controller, sse, mapState,
 		headsign: a.headsign, stops_away: a.number_of_stops_away,
 		bearing: a.vehicle_bearing ?? null,
 	})));
-	const arrivalByTripID = new Map(realtimeArrivals.map((arrival) => [arrival.trip_id, arrival]));
-	addVehicles(mapState, tripResults.flatMap((tripRes, index) => {
-		if (tripRes.status !== 'fulfilled') return [];
-		const detail = unwrap(tripRes.value);
-		if (detail?.lat == null || detail?.lon == null) return [];
-		const arrival = arrivalByTripID.get(tripIDsForPosition[index]);
-		return [{
-			lat: detail.lat, lon: detail.lon,
-			vehicle_id: detail.vehicle_id ?? arrival?.vehicle_id,
-			trip_id: detail.trip_id ?? tripIDsForPosition[index],
-			route_id: detail.route_id ?? arrival?.route_id,
-			route_short_name: arrival?.route_name,
-			headsign: arrival?.headsign,
-			stops_away: arrival?.number_of_stops_away,
-			bearing: detail.bearing ?? arrival?.vehicle_bearing ?? null,
-		}];
-	}));
-
 	for (const tripId of realtimeTripIds) {
 		if (!mapState.tripIds.has(tripId)) {
 			mapState.tripIds.add(tripId);

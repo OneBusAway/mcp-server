@@ -22,7 +22,8 @@ RULES — follow these exactly:
 7. In normal rider answers, never use the words UI, map, card, tool, display, render, or automatic. Do not explain internal behavior or capabilities.
 8. Do not include latitude or longitude unless the user explicitly asks for coordinates.
 9. For a question about a specific stop (including "show incoming buses moving toward my stop"), call get_arrivals_for_stop first. Do NOT call get_vehicles_for_agency: it returns the entire fleet and makes the answer less useful.
-10. For current vehicles on named routes, call get_trips_for_route once per route. Do not call get_vehicles_for_agency unless the user explicitly asks for the agency's entire fleet.`;
+10. For current vehicles on named routes, call get_trips_for_route once per route. Do not call get_vehicles_for_agency unless the user explicitly asks for the agency's entire fleet.
+11. When the user names a stop by TEXT (e.g. "E Harrison St @ Hank Ballard WB", "3rd & Main", "downtown transit center") and NOT by an ID like "1_1", call search_stops with query=<that name> first. If it returns exactly one stop, use that stop_id with get_arrivals_for_stop. If it returns multiple stops, DO NOT choose one and DO NOT call another tool: ask one short clarification question listing the matching stop names and IDs so the user can choose. Do NOT call find_stops_near_location, get_arrivals_for_location, get_stops_for_agency, or get_routes_for_agency for a named stop — the first two need coordinates you don't have, and the others return oversized lists.`;
 
 const LOCAL_SYSTEM = `You are a transit assistant with access to live OneBusAway transit data via tools.
 
@@ -40,6 +41,7 @@ CRITICAL RULES:
 - Do not include latitude or longitude unless the user explicitly asks for coordinates.
 - For a specific stop or its incoming buses, call get_arrivals_for_stop first. Never call get_vehicles_for_agency unless the user explicitly asks for all active vehicles in an agency.
 - For current vehicles on one or more named routes, call get_trips_for_route for each requested route. Do not call get_vehicles_for_agency for this.
+- If the user names a stop by TEXT like "E Harrison St @ Hank Ballard WB" or "3rd & Main" (no "_" in it, so not an ID), first call search_stops with query=<the exact stop text>. If there is exactly one result, call get_arrivals_for_stop with its stop_id. If there are multiple results, STOP: do not select the first result and do not call another tool. Ask one short question listing each matching stop name and ID and let the user choose. NEVER call find_stops_near_location, get_arrivals_for_location, get_stops_for_agency, or get_routes_for_agency for a named stop — they require coordinates you do not have or return oversized lists.
 - Do not call a second arrival or overview tool for a stop after you already received its arrivals in this reply.
 - Be short. One or two sentences max after the data.
 /no_think`;
@@ -67,15 +69,19 @@ const RIDER_TOOLS = new Set([
 let _toolsCache = null;
 let _toolsCacheAt = 0;
 
-async function getToolDefs(mcp, stopFocused, allTools = false) {
+const ARRIVAL_FOCUSED_TOOLS = new Set(['search_stops', 'get_arrivals_for_stop']);
+
+async function getToolDefs(mcp, arrivalFocused, allTools = false) {
 	if (!_toolsCache || Date.now() - _toolsCacheAt >= 5 * 60_000) {
 		_toolsCache = await mcp.listTools();
 		_toolsCacheAt = Date.now();
 	}
 	let filtered = allTools ? _toolsCache : _toolsCache.filter((t) => RIDER_TOOLS.has(t.name));
-	// The arrival tool is accurate and compact for a named stop. Skip the
-	// agency-wide fleet tool when the question is stop-focused.
-	if (!allTools && stopFocused) filtered = filtered.filter((t) => t.name !== 'get_vehicles_for_agency');
+	// A named-stop arrival request has one deterministic flow: resolve the stop,
+	// then fetch its arrivals. Restricting this small turn-specific tool set is
+	// especially important for local models, which otherwise confuse a trip
+	// detail lookup with the complete arrivals list.
+	if (arrivalFocused) filtered = filtered.filter((t) => ARRIVAL_FOCUSED_TOOLS.has(t.name));
 	return filtered.map((t) => ({
 		name: t.name,
 		description: t.description,
@@ -91,9 +97,11 @@ function getProviderCfg(id) {
 	return PROVIDERS.find((p) => p.id === id) ?? PROVIDERS[0];
 }
 
-function isStopFocusedRequest(messages) {
+function isArrivalFocusedRequest(messages) {
 	const latestUserText = [...messages].reverse().find((m) => m.role === 'user')?.content ?? '';
-	return /\b[\w-]+_\d+\b/.test(latestUserText);
+	const asksForArrivals = /\b(arrivals?|arriv(?:e|ing)|upcoming|next\s+(?:bus|buses)|incoming)\b/i.test(latestUserText);
+	const identifiesStop = /\b[\w-]+_\d+\b/.test(latestUserText) || /\s[@&]\s/.test(latestUserText);
+	return asksForArrivals && identifiesStop;
 }
 
 /** @type {import('./$types').RequestHandler} */
@@ -115,7 +123,7 @@ export async function POST({ request, fetch }) {
 	const mcp = createMCPClient(fetch);
 	let tools;
 	try {
-		tools = await getToolDefs(mcp, isStopFocusedRequest(messages), allTools);
+		tools = await getToolDefs(mcp, isArrivalFocusedRequest(messages), allTools);
 	} catch (e) {
 		throw httpError(502, { error: `Cannot reach oba-mcp: ${e.message}` });
 	}

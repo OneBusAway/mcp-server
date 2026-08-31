@@ -90,6 +90,8 @@ export function markCurrentStop(markers) {
 export function createMapState() {
 	return {
 		markers: [], directions: [], vehicles: [], routeIds: [], vehicleTripIds: [], tripInfo: {},
+		stopsById: new Map(),
+		requiresStopChoice: false,
 		markerKeys: new Set(), markerIndexes: new Map(), currentMarkerKey: null,
 		directionKeys: new Set(), vehicleKeys: new Set(), routeIdSet: new Set(), tripIds: new Set(),
 	};

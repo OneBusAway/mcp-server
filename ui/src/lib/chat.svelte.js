@@ -117,28 +117,37 @@ function createChatStore() {
 					let evt;
 					try { evt = JSON.parse(line.slice(6)); } catch { continue; }
 
-						if (evt.t === 'text') {
-							lastMsg.text += evt.v;
-						} else if (evt.t === 'card') {
-							const cards = lastMsg.toolCards ?? [];
-							if (evt.v.type === 'combined_map') {
-								// The server emits exactly one normalized map state per reply.
-								lastMsg.toolCards = [...cards.filter((card) => !['map', 'route_map', 'vehicle_map', 'arrivals_route_map', 'combined_map'].includes(card.type)), evt.v];
-							} else if (evt.v.type === 'arrivals_route_map') {
+					if (evt.t === 'text') {
+						lastMsg.text += evt.v;
+					} else if (evt.t === 'card') {
+						const cards = lastMsg.toolCards ?? [];
+						if (evt.v.type === 'map_loading') {
+							const hasMap = cards.some((card) =>
+								card.type === 'map_loading' ||
+								['map', 'route_map', 'vehicle_map', 'arrivals_route_map', 'combined_map'].includes(card.type)
+							);
+							if (!hasMap) lastMsg.toolCards = [...cards, evt.v];
+						} else if (evt.v.type === 'combined_map') {
+							// The server emits exactly one normalized map state per reply.
+							lastMsg.toolCards = [
+								...cards.filter((card) => !['map_loading', 'map', 'route_map', 'vehicle_map', 'arrivals_route_map', 'combined_map'].includes(card.type)),
+								evt.v,
+							];
+						} else if (evt.v.type === 'arrivals_route_map') {
 							// This map already contains the stop, routes, and incoming vehicles.
-							// Replace all other maps emitted by overlapping model tool calls.
-							lastMsg.toolCards = [...cards.filter((card) => !['map', 'route_map', 'vehicle_map'].includes(card.type)), evt.v];
-							} else if (['map', 'route_map', 'vehicle_map'].includes(evt.v.type) && cards.some((card) => card.type === 'arrivals_route_map')) {
-								// Ignore a generic map that arrives after the focused arrivals map.
-								continue;
-							} else if (COMBINABLE_MAP_TYPES.has(evt.v.type)) {
-								// A location lookup and route lookup may arrive separately. Render their
-								// markers and geometry on one map instead of stacking map cards.
-								lastMsg.toolCards = [
-									...cards.filter((card) => !COMBINABLE_MAP_TYPES.has(card.type)),
-									coalesceMapCards(cards, evt.v)
-								];
-							} else {
+							lastMsg.toolCards = [
+								...cards.filter((card) => !['map_loading', 'map', 'route_map', 'vehicle_map'].includes(card.type)),
+								evt.v,
+							];
+						} else if (['map', 'route_map', 'vehicle_map'].includes(evt.v.type) && cards.some((card) => card.type === 'arrivals_route_map')) {
+							// Ignore a generic map that arrives after the focused arrivals map.
+							continue;
+						} else if (COMBINABLE_MAP_TYPES.has(evt.v.type)) {
+							lastMsg.toolCards = [
+								...cards.filter((card) => card.type !== 'map_loading' && !COMBINABLE_MAP_TYPES.has(card.type)),
+								coalesceMapCards(cards, evt.v),
+							];
+						} else {
 							lastMsg.toolCards = [...cards, evt.v];
 						}
 					} else if (evt.t === 'map_suggestion') {
@@ -146,6 +155,7 @@ function createChatStore() {
 					} else if (evt.t === 'error') {
 						throw new Error(evt.v);
 					} else if (evt.t === 'done') {
+						lastMsg.toolCards = (lastMsg.toolCards ?? []).filter((card) => card.type !== 'map_loading');
 						done = true;
 						break;
 					}
