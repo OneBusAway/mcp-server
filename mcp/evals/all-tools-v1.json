@@ -1,0 +1,1063 @@
+{
+  "version": "all-tools-v1",
+  "cases": [
+    {
+      "id": "get-agencies-success",
+      "type": "success",
+      "prompt": "Which transit agencies are available?",
+      "expected_tool_calls": [
+        {
+          "name": "get_agencies",
+          "arguments": {}
+        }
+      ],
+      "max_tool_calls": 1,
+      "expected_outcome": "Lists available agencies from the MCP."
+    },
+    {
+      "id": "get-agencies-upstream-failure",
+      "type": "upstream_failure",
+      "prompt": "Which transit agencies are available?",
+      "expected_tool_calls": [
+        {
+          "name": "get_agencies",
+          "arguments": {}
+        }
+      ],
+      "max_tool_calls": 1,
+      "expected_error_code": "UPSTREAM_UNAVAILABLE",
+      "expected_outcome": "Reports the stable retryable upstream failure without inventing agencies."
+    },
+    {
+      "id": "get-agency-success",
+      "type": "success",
+      "prompt": "Tell me about agency `test`.",
+      "expected_tool_calls": [
+        {
+          "name": "get_agency",
+          "arguments": {
+            "agency_id": "test"
+          }
+        }
+      ],
+      "prompt_argument_keys": [
+        "agency_id"
+      ],
+      "max_tool_calls": 1,
+      "expected_outcome": "Returns the named agency."
+    },
+    {
+      "id": "get-agency-invalid",
+      "type": "invalid_argument",
+      "allow_no_tool_call": true,
+      "prompt": "Tell me about agency `bad/id`.",
+      "expected_tool_calls": [
+        {
+          "name": "get_agency",
+          "arguments": {
+            "agency_id": "bad/id"
+          }
+        }
+      ],
+      "prompt_argument_keys": [
+        "agency_id"
+      ],
+      "max_tool_calls": 1,
+      "expected_error_code": "INVALID_ARGUMENT",
+      "expected_outcome": "Rejects the malformed agency ID before upstream work."
+    },
+    {
+      "id": "get-stop-ids-success",
+      "type": "success",
+      "prompt": "List stop IDs for agency `test`.",
+      "expected_tool_calls": [
+        {
+          "name": "get_stop_ids_for_agency",
+          "arguments": {
+            "agency_id": "test"
+          }
+        }
+      ],
+      "prompt_argument_keys": [
+        "agency_id"
+      ],
+      "max_tool_calls": 1,
+      "expected_outcome": "Returns bounded stop IDs for the agency."
+    },
+    {
+      "id": "get-stop-ids-invalid",
+      "type": "invalid_argument",
+      "allow_no_tool_call": true,
+      "prompt": "List stop IDs for agency `bad/id`.",
+      "expected_tool_calls": [
+        {
+          "name": "get_stop_ids_for_agency",
+          "arguments": {
+            "agency_id": "bad/id"
+          }
+        }
+      ],
+      "prompt_argument_keys": [
+        "agency_id"
+      ],
+      "max_tool_calls": 1,
+      "expected_error_code": "INVALID_ARGUMENT",
+      "expected_outcome": "Rejects the malformed agency ID."
+    },
+    {
+      "id": "get-stop-success",
+      "type": "success",
+      "prompt": "Where is stop test_1013111?",
+      "expected_tool_calls": [
+        {
+          "name": "get_stop",
+          "arguments": {
+            "stop_id": "test_1013111"
+          }
+        }
+      ],
+      "prompt_argument_keys": [
+        "stop_id"
+      ],
+      "max_tool_calls": 1,
+      "expected_outcome": "Returns the requested stop without an unnecessary search."
+    },
+    {
+      "id": "get-stop-invalid",
+      "type": "invalid_argument",
+      "allow_no_tool_call": true,
+      "prompt": "Where is stop bad/id?",
+      "expected_tool_calls": [
+        {
+          "name": "get_stop",
+          "arguments": {
+            "stop_id": "bad/id"
+          }
+        }
+      ],
+      "prompt_argument_keys": [
+        "stop_id"
+      ],
+      "max_tool_calls": 1,
+      "expected_error_code": "INVALID_ARGUMENT",
+      "expected_outcome": "Rejects the malformed stop ID."
+    },
+    {
+      "id": "search-stops-success",
+      "type": "success",
+      "prompt": "Find stops named `Memorial Union`.",
+      "expected_tool_calls": [
+        {
+          "name": "search_stops",
+          "arguments": {
+            "query": "Memorial Union"
+          }
+        }
+      ],
+      "prompt_argument_keys": [
+        "query"
+      ],
+      "max_tool_calls": 1,
+      "expected_outcome": "Returns matching stops without inventing IDs."
+    },
+    {
+      "id": "search-stops-invalid",
+      "type": "invalid_argument",
+      "allow_no_tool_call": true,
+      "prompt": "Search stops using an empty query.",
+      "expected_tool_calls": [
+        {
+          "name": "search_stops",
+          "arguments": {
+            "query": "   "
+          }
+        }
+      ],
+      "max_tool_calls": 1,
+      "expected_error_code": "INVALID_ARGUMENT",
+      "expected_outcome": "Rejects an empty search query."
+    },
+    {
+      "id": "nearby-stops-success",
+      "type": "success",
+      "prompt": "Find stops near 27.9488, -82.4582.",
+      "expected_tool_calls": [
+        {
+          "name": "find_stops_near_location",
+          "arguments": {
+            "lat": 27.9488,
+            "lon": -82.4582
+          }
+        }
+      ],
+      "max_tool_calls": 1,
+      "expected_outcome": "Returns stops near the supplied coordinates."
+    },
+    {
+      "id": "nearby-stops-invalid",
+      "type": "invalid_argument",
+      "allow_no_tool_call": true,
+      "prompt": "Find stops near latitude 91 and longitude 0.",
+      "expected_tool_calls": [
+        {
+          "name": "find_stops_near_location",
+          "arguments": {
+            "lat": 91,
+            "lon": 0
+          }
+        }
+      ],
+      "max_tool_calls": 1,
+      "expected_error_code": "INVALID_ARGUMENT",
+      "expected_outcome": "Rejects out-of-range coordinates."
+    },
+    {
+      "id": "stops-for-agency-success",
+      "type": "success",
+      "prompt": "List stops for agency `test`.",
+      "expected_tool_calls": [
+        {
+          "name": "get_stops_for_agency",
+          "arguments": {
+            "agency_id": "test"
+          }
+        }
+      ],
+      "prompt_argument_keys": [
+        "agency_id"
+      ],
+      "max_tool_calls": 1,
+      "expected_outcome": "Returns a bounded agency stop page."
+    },
+    {
+      "id": "stops-for-agency-invalid",
+      "type": "invalid_argument",
+      "allow_no_tool_call": true,
+      "prompt": "List stops for agency `bad/id`.",
+      "expected_tool_calls": [
+        {
+          "name": "get_stops_for_agency",
+          "arguments": {
+            "agency_id": "bad/id"
+          }
+        }
+      ],
+      "prompt_argument_keys": [
+        "agency_id"
+      ],
+      "max_tool_calls": 1,
+      "expected_error_code": "INVALID_ARGUMENT",
+      "expected_outcome": "Rejects the malformed agency ID."
+    },
+    {
+      "id": "stop-schedule-success",
+      "type": "success",
+      "prompt": "Show the schedule for stop test_1013 on 2026-08-31.",
+      "expected_tool_calls": [
+        {
+          "name": "get_stop_schedule",
+          "arguments": {
+            "stop_id": "test_1013",
+            "date": "2026-08-31"
+          }
+        }
+      ],
+      "prompt_argument_keys": [
+        "stop_id"
+      ],
+      "max_tool_calls": 1,
+      "expected_outcome": "Returns the requested stop schedule with machine-readable times."
+    },
+    {
+      "id": "stop-schedule-invalid",
+      "type": "invalid_argument",
+      "allow_no_tool_call": true,
+      "prompt": "Show the schedule for stop test_1013 on invalid-date.",
+      "expected_tool_calls": [
+        {
+          "name": "get_stop_schedule",
+          "arguments": {
+            "stop_id": "test_1013",
+            "date": "invalid-date"
+          }
+        }
+      ],
+      "prompt_argument_keys": [
+        "stop_id"
+      ],
+      "max_tool_calls": 1,
+      "expected_error_code": "INVALID_ARGUMENT",
+      "expected_outcome": "Rejects the malformed service date."
+    },
+    {
+      "id": "current-time-success",
+      "type": "success",
+      "prompt": "What time does the transit system say it is?",
+      "expected_tool_calls": [
+        {
+          "name": "get_current_time",
+          "arguments": {}
+        }
+      ],
+      "max_tool_calls": 1,
+      "expected_outcome": "Returns the OBA reference clock."
+    },
+    {
+      "id": "current-time-upstream-failure",
+      "type": "upstream_failure",
+      "prompt": "What time does the transit system say it is?",
+      "expected_tool_calls": [
+        {
+          "name": "get_current_time",
+          "arguments": {}
+        }
+      ],
+      "max_tool_calls": 1,
+      "expected_error_code": "UPSTREAM_UNAVAILABLE",
+      "expected_outcome": "Reports a stable upstream error without inventing a time."
+    },
+    {
+      "id": "metadata-success",
+      "type": "success",
+      "prompt": "What is the current transit data freshness?",
+      "expected_tool_calls": [
+        {
+          "name": "get_metadata",
+          "arguments": {}
+        }
+      ],
+      "max_tool_calls": 1,
+      "expected_outcome": "Returns the compact freshness summary."
+    },
+    {
+      "id": "metadata-upstream-failure",
+      "type": "upstream_failure",
+      "prompt": "What is the transit data freshness?",
+      "expected_tool_calls": [
+        {
+          "name": "get_metadata",
+          "arguments": {}
+        }
+      ],
+      "max_tool_calls": 1,
+      "expected_error_code": "UPSTREAM_UNAVAILABLE",
+      "expected_outcome": "Reports a stable upstream error without raw backend details."
+    },
+    {
+      "id": "specific-arrival-success",
+      "type": "success",
+      "prompt": "Get trip test_trip at stop test_1013 for service date 1770000000000.",
+      "expected_tool_calls": [
+        {
+          "name": "get_arrival_and_departure_for_stop",
+          "arguments": {
+            "stop_id": "test_1013",
+            "trip_id": "test_trip",
+            "service_date": 1770000000000
+          }
+        }
+      ],
+      "prompt_argument_keys": [
+        "stop_id",
+        "trip_id"
+      ],
+      "max_tool_calls": 1,
+      "expected_outcome": "Returns one arrival or departure with exact timestamps."
+    },
+    {
+      "id": "specific-arrival-invalid",
+      "type": "invalid_argument",
+      "allow_no_tool_call": true,
+      "prompt": "Get trip bad/id at stop test_1013 for service date 1770000000000.",
+      "expected_tool_calls": [
+        {
+          "name": "get_arrival_and_departure_for_stop",
+          "arguments": {
+            "stop_id": "test_1013",
+            "trip_id": "bad/id",
+            "service_date": 1770000000000
+          }
+        }
+      ],
+      "prompt_argument_keys": [
+        "stop_id",
+        "trip_id"
+      ],
+      "max_tool_calls": 1,
+      "expected_error_code": "INVALID_ARGUMENT",
+      "expected_outcome": "Rejects the malformed trip ID."
+    },
+    {
+      "id": "arrivals-for-stop-success",
+      "type": "success",
+      "prompt": "What arrives at stop test_1013 in the next 60 minutes?",
+      "expected_tool_calls": [
+        {
+          "name": "get_arrivals_for_stop",
+          "arguments": {
+            "stop_id": "test_1013",
+            "minutes_after": 60
+          }
+        }
+      ],
+      "prompt_argument_keys": [
+        "stop_id"
+      ],
+      "max_tool_calls": 1,
+      "expected_outcome": "Returns arrivals and clearly distinguishes realtime predictions."
+    },
+    {
+      "id": "arrivals-for-stop-invalid",
+      "type": "invalid_argument",
+      "allow_no_tool_call": true,
+      "prompt": "What arrives at stop bad/id?",
+      "expected_tool_calls": [
+        {
+          "name": "get_arrivals_for_stop",
+          "arguments": {
+            "stop_id": "bad/id"
+          }
+        }
+      ],
+      "prompt_argument_keys": [
+        "stop_id"
+      ],
+      "max_tool_calls": 1,
+      "expected_error_code": "INVALID_ARGUMENT",
+      "expected_outcome": "Rejects the malformed stop ID."
+    },
+    {
+      "id": "arrivals-for-location-success",
+      "type": "success",
+      "prompt": "What buses are near 27.9488, -82.4582?",
+      "expected_tool_calls": [
+        {
+          "name": "get_arrivals_for_location",
+          "arguments": {
+            "lat": 27.9488,
+            "lon": -82.4582
+          }
+        }
+      ],
+      "max_tool_calls": 1,
+      "expected_outcome": "Returns bounded nearby arrivals."
+    },
+    {
+      "id": "arrivals-for-location-invalid",
+      "type": "invalid_argument",
+      "allow_no_tool_call": true,
+      "prompt": "What buses are near latitude Infinity and longitude 0?",
+      "expected_tool_calls": [
+        {
+          "name": "get_arrivals_for_location",
+          "arguments": {
+            "lat": "Infinity",
+            "lon": 0
+          }
+        }
+      ],
+      "max_tool_calls": 1,
+      "expected_error_code": "INVALID_ARGUMENT",
+      "expected_outcome": "Rejects a non-numeric coordinate."
+    },
+    {
+      "id": "route-ids-success",
+      "type": "success",
+      "prompt": "List route IDs for agency `test`.",
+      "expected_tool_calls": [
+        {
+          "name": "get_route_ids_for_agency",
+          "arguments": {
+            "agency_id": "test"
+          }
+        }
+      ],
+      "prompt_argument_keys": [
+        "agency_id"
+      ],
+      "max_tool_calls": 1,
+      "expected_outcome": "Returns bounded route IDs."
+    },
+    {
+      "id": "route-ids-invalid",
+      "type": "invalid_argument",
+      "allow_no_tool_call": true,
+      "prompt": "List route IDs for agency `bad/id`.",
+      "expected_tool_calls": [
+        {
+          "name": "get_route_ids_for_agency",
+          "arguments": {
+            "agency_id": "bad/id"
+          }
+        }
+      ],
+      "prompt_argument_keys": [
+        "agency_id"
+      ],
+      "max_tool_calls": 1,
+      "expected_error_code": "INVALID_ARGUMENT",
+      "expected_outcome": "Rejects the malformed agency ID."
+    },
+    {
+      "id": "shape-success",
+      "type": "success",
+      "prompt": "Get shape `test_shape`.",
+      "expected_tool_calls": [
+        {
+          "name": "get_shape",
+          "arguments": {
+            "shape_id": "test_shape"
+          }
+        }
+      ],
+      "prompt_argument_keys": [
+        "shape_id"
+      ],
+      "max_tool_calls": 1,
+      "expected_outcome": "Returns the requested shape within the output budget."
+    },
+    {
+      "id": "shape-invalid",
+      "type": "invalid_argument",
+      "allow_no_tool_call": true,
+      "prompt": "Get shape `bad/id`.",
+      "expected_tool_calls": [
+        {
+          "name": "get_shape",
+          "arguments": {
+            "shape_id": "bad/id"
+          }
+        }
+      ],
+      "prompt_argument_keys": [
+        "shape_id"
+      ],
+      "max_tool_calls": 1,
+      "expected_error_code": "INVALID_ARGUMENT",
+      "expected_outcome": "Rejects the malformed shape ID."
+    },
+    {
+      "id": "get-route-success",
+      "type": "success",
+      "prompt": "Tell me about route `test_10`.",
+      "expected_tool_calls": [
+        {
+          "name": "get_route",
+          "arguments": {
+            "route_id": "test_10"
+          }
+        }
+      ],
+      "prompt_argument_keys": [
+        "route_id"
+      ],
+      "max_tool_calls": 1,
+      "expected_outcome": "Returns the named route."
+    },
+    {
+      "id": "get-route-invalid",
+      "type": "invalid_argument",
+      "allow_no_tool_call": true,
+      "prompt": "Tell me about route `bad/id`.",
+      "expected_tool_calls": [
+        {
+          "name": "get_route",
+          "arguments": {
+            "route_id": "bad/id"
+          }
+        }
+      ],
+      "prompt_argument_keys": [
+        "route_id"
+      ],
+      "max_tool_calls": 1,
+      "expected_error_code": "INVALID_ARGUMENT",
+      "expected_outcome": "Rejects the malformed route ID."
+    },
+    {
+      "id": "search-routes-success",
+      "type": "success",
+      "prompt": "Find route `10`.",
+      "expected_tool_calls": [
+        {
+          "name": "search_routes",
+          "arguments": {
+            "query": "10"
+          }
+        }
+      ],
+      "prompt_argument_keys": [
+        "query"
+      ],
+      "max_tool_calls": 1,
+      "expected_outcome": "Returns matching routes."
+    },
+    {
+      "id": "search-routes-invalid",
+      "type": "invalid_argument",
+      "allow_no_tool_call": true,
+      "prompt": "Search routes using an empty query.",
+      "expected_tool_calls": [
+        {
+          "name": "search_routes",
+          "arguments": {
+            "query": "   "
+          }
+        }
+      ],
+      "max_tool_calls": 1,
+      "expected_error_code": "INVALID_ARGUMENT",
+      "expected_outcome": "Rejects an empty search query."
+    },
+    {
+      "id": "routes-for-agency-success",
+      "type": "success",
+      "prompt": "List routes for agency `test`.",
+      "expected_tool_calls": [
+        {
+          "name": "get_routes_for_agency",
+          "arguments": {
+            "agency_id": "test"
+          }
+        }
+      ],
+      "prompt_argument_keys": [
+        "agency_id"
+      ],
+      "max_tool_calls": 1,
+      "expected_outcome": "Returns a bounded route page."
+    },
+    {
+      "id": "routes-for-agency-invalid",
+      "type": "invalid_argument",
+      "allow_no_tool_call": true,
+      "prompt": "List routes for agency `bad/id`.",
+      "expected_tool_calls": [
+        {
+          "name": "get_routes_for_agency",
+          "arguments": {
+            "agency_id": "bad/id"
+          }
+        }
+      ],
+      "prompt_argument_keys": [
+        "agency_id"
+      ],
+      "max_tool_calls": 1,
+      "expected_error_code": "INVALID_ARGUMENT",
+      "expected_outcome": "Rejects the malformed agency ID."
+    },
+    {
+      "id": "routes-for-location-success",
+      "type": "success",
+      "prompt": "Which routes serve 27.9488, -82.4582?",
+      "expected_tool_calls": [
+        {
+          "name": "get_routes_for_location",
+          "arguments": {
+            "lat": 27.9488,
+            "lon": -82.4582
+          }
+        }
+      ],
+      "max_tool_calls": 1,
+      "expected_outcome": "Returns routes near the location."
+    },
+    {
+      "id": "routes-for-location-invalid",
+      "type": "invalid_argument",
+      "allow_no_tool_call": true,
+      "prompt": "Which routes serve latitude 91 and longitude 0?",
+      "expected_tool_calls": [
+        {
+          "name": "get_routes_for_location",
+          "arguments": {
+            "lat": 91,
+            "lon": 0
+          }
+        }
+      ],
+      "max_tool_calls": 1,
+      "expected_error_code": "INVALID_ARGUMENT",
+      "expected_outcome": "Rejects out-of-range coordinates."
+    },
+    {
+      "id": "stops-for-route-success",
+      "type": "success",
+      "prompt": "Which stops does route test_10 serve?",
+      "expected_tool_calls": [
+        {
+          "name": "get_stops_for_route",
+          "arguments": {
+            "route_id": "test_10"
+          }
+        }
+      ],
+      "prompt_argument_keys": [
+        "route_id"
+      ],
+      "max_tool_calls": 1,
+      "expected_outcome": "Returns route stops and map geometry when available."
+    },
+    {
+      "id": "stops-for-route-invalid",
+      "type": "invalid_argument",
+      "allow_no_tool_call": true,
+      "prompt": "Which stops does route bad/id serve?",
+      "expected_tool_calls": [
+        {
+          "name": "get_stops_for_route",
+          "arguments": {
+            "route_id": "bad/id"
+          }
+        }
+      ],
+      "prompt_argument_keys": [
+        "route_id"
+      ],
+      "max_tool_calls": 1,
+      "expected_error_code": "INVALID_ARGUMENT",
+      "expected_outcome": "Rejects the malformed route ID."
+    },
+    {
+      "id": "trips-for-route-success",
+      "type": "success",
+      "prompt": "Which trips are on route test_10?",
+      "expected_tool_calls": [
+        {
+          "name": "get_trips_for_route",
+          "arguments": {
+            "route_id": "test_10"
+          }
+        }
+      ],
+      "prompt_argument_keys": [
+        "route_id"
+      ],
+      "max_tool_calls": 1,
+      "expected_outcome": "Returns bounded route trips."
+    },
+    {
+      "id": "trips-for-route-invalid",
+      "type": "invalid_argument",
+      "allow_no_tool_call": true,
+      "prompt": "Which trips are on route bad/id?",
+      "expected_tool_calls": [
+        {
+          "name": "get_trips_for_route",
+          "arguments": {
+            "route_id": "bad/id"
+          }
+        }
+      ],
+      "prompt_argument_keys": [
+        "route_id"
+      ],
+      "max_tool_calls": 1,
+      "expected_error_code": "INVALID_ARGUMENT",
+      "expected_outcome": "Rejects the malformed route ID."
+    },
+    {
+      "id": "schedule-for-route-success",
+      "type": "success",
+      "prompt": "Show route test_10 schedule on 2026-08-31.",
+      "expected_tool_calls": [
+        {
+          "name": "get_schedule_for_route",
+          "arguments": {
+            "route_id": "test_10",
+            "date": "2026-08-31"
+          }
+        }
+      ],
+      "prompt_argument_keys": [
+        "route_id"
+      ],
+      "max_tool_calls": 1,
+      "expected_outcome": "Returns the requested route schedule with absolute timestamps."
+    },
+    {
+      "id": "schedule-for-route-invalid",
+      "type": "invalid_argument",
+      "allow_no_tool_call": true,
+      "prompt": "Show route test_10 schedule on invalid-date.",
+      "expected_tool_calls": [
+        {
+          "name": "get_schedule_for_route",
+          "arguments": {
+            "route_id": "test_10",
+            "date": "invalid-date"
+          }
+        }
+      ],
+      "prompt_argument_keys": [
+        "route_id"
+      ],
+      "max_tool_calls": 1,
+      "expected_error_code": "INVALID_ARGUMENT",
+      "expected_outcome": "Rejects the malformed service date."
+    },
+    {
+      "id": "stop-overview-success",
+      "type": "success",
+      "prompt": "Give me an overview of stop `test_1013`.",
+      "expected_tool_calls": [
+        {
+          "name": "get_stop_overview",
+          "arguments": {
+            "stop_id": "test_1013"
+          }
+        }
+      ],
+      "prompt_argument_keys": [
+        "stop_id"
+      ],
+      "max_tool_calls": 1,
+      "expected_outcome": "Returns a compact stop and next-arrivals overview."
+    },
+    {
+      "id": "stop-overview-invalid",
+      "type": "invalid_argument",
+      "allow_no_tool_call": true,
+      "prompt": "Give me an overview of stop `bad/id`.",
+      "expected_tool_calls": [
+        {
+          "name": "get_stop_overview",
+          "arguments": {
+            "stop_id": "bad/id"
+          }
+        }
+      ],
+      "prompt_argument_keys": [
+        "stop_id"
+      ],
+      "max_tool_calls": 1,
+      "expected_error_code": "INVALID_ARGUMENT",
+      "expected_outcome": "Rejects the malformed stop ID."
+    },
+    {
+      "id": "block-success",
+      "type": "success",
+      "prompt": "Get block `test_block`.",
+      "expected_tool_calls": [
+        {
+          "name": "get_block",
+          "arguments": {
+            "block_id": "test_block"
+          }
+        }
+      ],
+      "prompt_argument_keys": [
+        "block_id"
+      ],
+      "max_tool_calls": 1,
+      "expected_outcome": "Returns the requested block structure."
+    },
+    {
+      "id": "block-invalid",
+      "type": "invalid_argument",
+      "allow_no_tool_call": true,
+      "prompt": "Get block `bad/id`.",
+      "expected_tool_calls": [
+        {
+          "name": "get_block",
+          "arguments": {
+            "block_id": "bad/id"
+          }
+        }
+      ],
+      "prompt_argument_keys": [
+        "block_id"
+      ],
+      "max_tool_calls": 1,
+      "expected_error_code": "INVALID_ARGUMENT",
+      "expected_outcome": "Rejects the malformed block ID."
+    },
+    {
+      "id": "trip-success",
+      "type": "success",
+      "prompt": "Get trip `test_trip`.",
+      "expected_tool_calls": [
+        {
+          "name": "get_trip",
+          "arguments": {
+            "trip_id": "test_trip"
+          }
+        }
+      ],
+      "prompt_argument_keys": [
+        "trip_id"
+      ],
+      "max_tool_calls": 1,
+      "expected_outcome": "Returns the requested trip."
+    },
+    {
+      "id": "trip-invalid",
+      "type": "invalid_argument",
+      "allow_no_tool_call": true,
+      "prompt": "Get trip `bad/id`.",
+      "expected_tool_calls": [
+        {
+          "name": "get_trip",
+          "arguments": {
+            "trip_id": "bad/id"
+          }
+        }
+      ],
+      "prompt_argument_keys": [
+        "trip_id"
+      ],
+      "max_tool_calls": 1,
+      "expected_error_code": "INVALID_ARGUMENT",
+      "expected_outcome": "Rejects the malformed trip ID."
+    },
+    {
+      "id": "trip-details-success",
+      "type": "success",
+      "prompt": "What is the live status of trip test_trip?",
+      "expected_tool_calls": [
+        {
+          "name": "get_trip_details",
+          "arguments": {
+            "trip_id": "test_trip"
+          }
+        }
+      ],
+      "prompt_argument_keys": [
+        "trip_id"
+      ],
+      "max_tool_calls": 1,
+      "expected_outcome": "Returns typed trip status and location when realtime data exists."
+    },
+    {
+      "id": "trip-details-invalid",
+      "type": "invalid_argument",
+      "allow_no_tool_call": true,
+      "prompt": "What is the live status of trip bad/id?",
+      "expected_tool_calls": [
+        {
+          "name": "get_trip_details",
+          "arguments": {
+            "trip_id": "bad/id"
+          }
+        }
+      ],
+      "prompt_argument_keys": [
+        "trip_id"
+      ],
+      "max_tool_calls": 1,
+      "expected_error_code": "INVALID_ARGUMENT",
+      "expected_outcome": "Rejects the malformed trip ID."
+    },
+    {
+      "id": "trip-for-vehicle-success",
+      "type": "success",
+      "prompt": "Which trip is vehicle test_bus running?",
+      "expected_tool_calls": [
+        {
+          "name": "get_trip_for_vehicle",
+          "arguments": {
+            "vehicle_id": "test_bus"
+          }
+        }
+      ],
+      "prompt_argument_keys": [
+        "vehicle_id"
+      ],
+      "max_tool_calls": 1,
+      "expected_outcome": "Returns the vehicle's current trip when available."
+    },
+    {
+      "id": "trip-for-vehicle-invalid",
+      "type": "invalid_argument",
+      "allow_no_tool_call": true,
+      "prompt": "Which trip is vehicle bad/id running?",
+      "expected_tool_calls": [
+        {
+          "name": "get_trip_for_vehicle",
+          "arguments": {
+            "vehicle_id": "bad/id"
+          }
+        }
+      ],
+      "prompt_argument_keys": [
+        "vehicle_id"
+      ],
+      "max_tool_calls": 1,
+      "expected_error_code": "INVALID_ARGUMENT",
+      "expected_outcome": "Rejects the malformed vehicle ID."
+    },
+    {
+      "id": "vehicles-for-agency-success",
+      "type": "success",
+      "prompt": "Where are vehicles for agency test?",
+      "expected_tool_calls": [
+        {
+          "name": "get_vehicles_for_agency",
+          "arguments": {
+            "agency_id": "test"
+          }
+        }
+      ],
+      "prompt_argument_keys": [
+        "agency_id"
+      ],
+      "max_tool_calls": 1,
+      "expected_outcome": "Returns bounded agency vehicle locations."
+    },
+    {
+      "id": "vehicles-for-agency-invalid",
+      "type": "invalid_argument",
+      "allow_no_tool_call": true,
+      "prompt": "Where are vehicles for agency bad/id?",
+      "expected_tool_calls": [
+        {
+          "name": "get_vehicles_for_agency",
+          "arguments": {
+            "agency_id": "bad/id"
+          }
+        }
+      ],
+      "prompt_argument_keys": [
+        "agency_id"
+      ],
+      "max_tool_calls": 1,
+      "expected_error_code": "INVALID_ARGUMENT",
+      "expected_outcome": "Rejects the malformed agency ID."
+    },
+    {
+      "id": "trips-for-location-success",
+      "type": "success",
+      "prompt": "Which trips are near 27.9488, -82.4582?",
+      "expected_tool_calls": [
+        {
+          "name": "get_trips_for_location",
+          "arguments": {
+            "lat": 27.9488,
+            "lon": -82.4582
+          }
+        }
+      ],
+      "max_tool_calls": 1,
+      "expected_outcome": "Returns bounded live trips near the location."
+    },
+    {
+      "id": "trips-for-location-invalid",
+      "type": "invalid_argument",
+      "allow_no_tool_call": true,
+      "prompt": "Which trips are near latitude 91 and longitude 0?",
+      "expected_tool_calls": [
+        {
+          "name": "get_trips_for_location",
+          "arguments": {
+            "lat": 91,
+            "lon": 0
+          }
+        }
+      ],
+      "max_tool_calls": 1,
+      "expected_error_code": "INVALID_ARGUMENT",
+      "expected_outcome": "Rejects out-of-range coordinates."
+    }
+  ]
+}

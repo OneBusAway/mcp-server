@@ -3,8 +3,10 @@ OBA_BASE_URL ?= http://localhost:4000
 OBA_API_KEY  ?= test
 
 OBA_PORT ?= 8080
+EVAL_SUITE ?= evals/scenarios-v1.json
+EVAL_TRANSCRIPT ?= evals/transcripts/live.json
 
-.PHONY: build run watch test fmt lint clean mcp-add mcp-remove serve-http logs docker-build docker-up docker-down docker-logs
+.PHONY: build run watch test eval-test eval-run eval-live eval-score fmt lint clean mcp-add mcp-remove serve-http logs docker-build docker-up docker-down docker-logs
 
 ## build: compile the binary to ./oba-mcp
 build:
@@ -21,6 +23,23 @@ watch:
 ## test: run all Go tests
 test:
 	go test ./...
+
+## eval-test: validate the versioned natural-language MCP evaluation suites
+eval-test:
+	go test ./evals
+
+## eval-run: run a suite through an OpenAI-compatible model endpoint
+eval-run:
+	go run ./cmd/evalrun -suite "$(EVAL_SUITE)" -out "$(EVAL_TRANSCRIPT)"
+
+## eval-live: run a live model evaluation and score its transcript
+eval-live: eval-run
+	$(MAKE) eval-score TRANSCRIPT="$(EVAL_TRANSCRIPT)"
+
+## eval-score: score a model/client transcript (usage: make eval-score TRANSCRIPT=path.json)
+eval-score:
+	@test -n "$(TRANSCRIPT)" || (echo "TRANSCRIPT is required" && exit 2)
+	go run ./cmd/evalscore -suite "$(EVAL_SUITE)" -transcript "$(TRANSCRIPT)"
 
 ## fmt: format all Go code
 fmt:

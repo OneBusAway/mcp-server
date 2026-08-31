@@ -21,3 +21,7 @@ mcp/oba-mcp
 # Developer-local agent configuration
 opencode.json
 mcp/opencode.json
+
+# Model evaluation outputs may contain provider/model responses.
+mcp/evals/transcripts/
+mcp/evals/results/
