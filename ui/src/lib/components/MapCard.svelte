@@ -1,5 +1,5 @@
 <script>
-	import { onMount, onDestroy, tick } from 'svelte';
+	import { onMount, onDestroy, tick, untrack } from 'svelte';
 	import { browser } from '$app/environment';
 	import { settings } from '$lib/settings.svelte.js';
 	import { callTool } from '$lib/mcp.js';
@@ -13,7 +13,7 @@
 	 * @typedef {{ lat: number, lon: number, vehicle_id?: string, trip_id?: string, route_id?: string, route_short_name?: string, headsign?: string, stops_away?: number, phase?: string, deviation_mins?: number }} Vehicle
 	 */
 
-	/** @type {{ markers?: Marker[], routes?: RouteDir[], zoom?: number, vehicles?: Vehicle[], agencyId?: string | null, vehicleTripIds?: string[], stopId?: string | null, tripInfo?: Record<string, { route_short_name: string, headsign: string }> }} */
+	/** @type {{ markers?: Marker[], routes?: RouteDir[], zoom?: number, vehicles?: Vehicle[], agencyId?: string | null, vehicleTripIds?: string[], stopId?: string | null, tripInfo?: Record<string, { route_short_name: string, headsign: string }>, autoScroll?: boolean }} */
 	let {
 		markers = [],
 		routes = [],
@@ -23,6 +23,7 @@
 		vehicleTripIds = [],
 		stopId = null,
 		tripInfo = {},
+		autoScroll = false,
 	} = $props();
 
 	const THEMES = [
@@ -59,8 +60,8 @@
 			.map((s) => [s.lon ?? s.lng, s.lat]);
 	}
 
-	let containerEl;
-	let mapEl;
+	let containerEl = $state();
+	let mapEl = $state();
 	let map;
 	let maplibregl;
 	let markerInstances = [];
@@ -68,13 +69,15 @@
 	let routeLayerIds  = [];
 	/** @type {Map<string, { marker: any, popup: any }>} */
 	let vehicleMarkerMap = new Map();
-	let localVehicles = $state([...vehiclesProp]);
+	let localVehicles = $state([]);
 	let isFullscreen   = $state(false);
 	let showThemes     = $state(false);
 	let activeTheme    = $state(settings.mapStyle);
 	let selectedStop   = $state(null);
 	let mapLoading     = $state(true);
 	let vehicleRefreshId = null; // plain var — not reactive
+	let vehicleRebuildRaf = null;
+	let lastVehiclesProp = null;
 
 	// True when any of this map's tracked trips is being watched in the tracking store
 	const isTracked = $derived(
@@ -166,6 +169,15 @@
 	const METRES_PER_DEG = 111320;
 	function mPerDeg(lat) { return METRES_PER_DEG * Math.cos(lat * Math.PI / 180); }
 
+	function sameStopLocation(a, b, thresholdM = 6) {
+		if (!a || !b) return false;
+		const aLon = a.lon ?? a.lng;
+		const bLon = b.lon ?? b.lng;
+		if (![a.lat, aLon, b.lat, bLon].every(Number.isFinite)) return false;
+		const refLat = (a.lat + b.lat) / 2;
+		return Math.hypot((aLon - bLon) * mPerDeg(refLat), (a.lat - b.lat) * METRES_PER_DEG) <= thresholdM;
+	}
+
 	// Returns nearest point on polyline with distM in metres (latitude-corrected)
 	function nearestPointOnRoute(point, coordinates) {
 		const lonScale = mPerDeg(point[1]);
@@ -203,7 +215,19 @@
 		return (best && best.distM <= 400) ? best.point : null;
 	}
 
-	function routeCoordinatesForVehicle(vehicle, target) {
+	// Snap using the vehicle's own route when we can identify it; falls back
+	// to nearest-of-any-route. Prevents a bus getting glued to a parallel line
+	// (e.g. two routes on the same street) it doesn't actually serve.
+	function snapVehicleToRoute(vehicle, lngLat) {
+		const coords = routeCoordinatesForVehicle(vehicle, lngLat);
+		if (coords) {
+			const nearest = nearestPointOnRoute(lngLat, coords);
+			if (nearest && nearest.distM <= 400) return nearest.point;
+		}
+		return snapToRoute(lngLat);
+	}
+
+	function routeCoordinatesForVehicle(vehicle, target, from = null) {
 		const shortId = String(vehicle.route_id ?? '').split('_').at(-1);
 		const ids = new Set([vehicle.route_id, vehicle.route_short_name, shortId].filter(Boolean).map(String));
 		let best = null;
@@ -211,15 +235,19 @@
 			const coordinates = routeCoordinates(direction);
 			if (coordinates.length < 2) continue;
 			const match = ids.has(String(direction.direction));
-			const nearest = nearestPointOnRoute(target, coordinates);
-			const score = nearest.distM + (match ? 0 : 500);
+			const targetProjection = nearestPointOnRoute(target, coordinates);
+			const fromProjection = from ? nearestPointOnRoute(from, coordinates) : null;
+			// WayFinder chooses the shape minimizing the combined distance from both
+			// endpoints. Using only the new GPS point can jump to a parallel/opposite
+			// shape and becomes especially obvious after zooming in.
+			const score = targetProjection.distM + (fromProjection?.distM ?? 0) + (match ? 0 : 500);
 			if (!best || score < best.score) best = { coordinates, score };
 		}
 		return best?.coordinates ?? null;
 	}
 
 	function routePathForVehicle(vehicle, from, target) {
-		const coordinates = routeCoordinatesForVehicle(vehicle, target);
+		const coordinates = routeCoordinatesForVehicle(vehicle, target, from);
 		if (!coordinates) return null;
 		const start = nearestPointOnRoute(from, coordinates);
 		const end = nearestPointOnRoute(target, coordinates);
@@ -232,7 +260,10 @@
 		const middle = startProgress <= endProgress
 			? coordinates.slice(start.index + 1, end.index + 1)
 			: coordinates.slice(end.index + 1, start.index + 1).reverse();
-		const path = [from, start.point, ...middle, end.point, target];
+		// Path ends at the on-route projection, NOT at raw GPS. Ending at `target`
+		// (raw GPS) makes the marker rest on a nearby house/parking lot ~10-30 m off
+		// the road — visible immediately when the user zooms in.
+		const path = [from, start.point, ...middle, end.point];
 		return path.filter((point, index) => index === 0 || pointDistance(point, path[index - 1]) > 0.000001);
 	}
 
@@ -289,7 +320,24 @@
 		return [...byVehicleId.values(), ...noId];
 	}
 
+	// Public entry: coalesces multiple invocations that hit within the same frame.
+	// When Track fires, `tracking.trackers`, `stopArrivals[stopId]`, and `localVehicles`
+	// can all reassign in the same microtask batch — without coalescing this ran the
+	// expensive DOM/snap loop N times back-to-back and blocked the main thread long
+	// enough that clicks stopped registering.
 	function buildVehicleMarkers(trackedIds = new Set()) {
+		if (!map || !maplibregl) return;
+		if (vehicleRebuildRaf != null) return;
+		vehicleRebuildRaf = requestAnimationFrame(() => {
+			vehicleRebuildRaf = null;
+			// Re-read tracked IDs at fire time so we reflect the latest tracker state,
+			// not the state captured when the first cascading effect scheduled us.
+			const latest = new Set(tracking.trackers.map(t => t.trip_id));
+			_buildVehicleMarkersNow(latest);
+		});
+	}
+
+	function _buildVehicleMarkersNow(trackedIds) {
 		if (!map || !maplibregl) return;
 		const seen = new Set();
 
@@ -301,6 +349,7 @@
 			const popupText = vehiclePopupText(v);
 
 			const isTracked = trackedIds.has(key);
+			const targetSnapped = snapVehicleToRoute(v, lngLat) ?? lngLat;
 			if (vehicleMarkerMap.has(key)) {
 				const entry = vehicleMarkerMap.get(key);
 				const { marker, popup } = entry;
@@ -311,27 +360,37 @@
 					entry.el.style.filter = `drop-shadow(0 ${isTracked ? '2px 5px rgba(245,158,11,0.55)' : '1px 3px rgba(0,0,0,0.32)'})`;
 					entry.isTracked = isTracked;
 				}
-				const curr = marker.getLngLat();
-				if (curr.lng !== v.lon || curr.lat !== v.lat) {
+				// Compare the incoming GPS position, not its snapped projection. Several GPS
+				// reports can project to the same point on a coarse route shape; comparing
+				// projections made those vehicles look frozen. Keeping the raw source also
+				// prevents unrelated tracker renders from restarting an animation.
+				const prev = entry.sourceLngLat;
+				const destChanged = !prev || Math.abs(prev[0] - lngLat[0]) > 1e-7 || Math.abs(prev[1] - lngLat[1]) > 1e-7;
+				if (destChanged) {
+					entry.sourceLngLat = lngLat;
+					entry.targetLngLat = targetSnapped;
+					const curr = marker.getLngLat();
 					const path = routePathForVehicle(v, [curr.lng, curr.lat], lngLat);
 					if (path?.length > 1) animateAlongRoute(entry, path);
-					else {
-						const snapped = snapToRoute(lngLat);
-						animateTo(entry, (snapped ?? lngLat)[1], (snapped ?? lngLat)[0], 1800);
-					}
+					else animateTo(entry, targetSnapped[1], targetSnapped[0], 1800);
 				}
-				if (popup) popup.setLngLat(lngLat).setText(popupText);
+				if (popup) popup.setLngLat(targetSnapped).setText(popupText);
 			} else {
 				const el = makeBusElement(v, isTracked);
 				const popup = new maplibregl.Popup({
 					offset: 20, closeButton: false, className: 'oba-hover-popup'
-				}).setLngLat(lngLat).setText(popupText);
-				const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
-					.setLngLat(snapToRoute(lngLat) ?? lngLat)
+				}).setLngLat(targetSnapped).setText(popupText);
+				const marker = new maplibregl.Marker({ element: el, anchor: 'center', subpixelPositioning: true })
+					.setLngLat(targetSnapped)
 					.addTo(map);
 				el.addEventListener('mouseenter', () => popup.addTo(map));
 				el.addEventListener('mouseleave', () => popup.remove());
-				vehicleMarkerMap.set(key, { marker, popup, el, isTracked, _animRaf: null });
+				vehicleMarkerMap.set(key, {
+					marker, popup, el, isTracked,
+					sourceLngLat: lngLat,
+					targetLngLat: targetSnapped,
+					_animRaf: null,
+				});
 			}
 		}
 
@@ -345,7 +404,7 @@
 		}
 	}
 
-	async function refreshVehiclePositions() {
+	async function refreshVehiclePositions(tripIds = vehicleTripIds) {
 		if (agencyId) {
 			try {
 				const result = await callTool('get_vehicles_for_agency', { agency_id: agencyId });
@@ -354,8 +413,8 @@
 					localVehicles = fleet.filter(v => v.lat && v.lon);
 				}
 			} catch {}
-		} else if (vehicleTripIds?.length) {
-			const ids = vehicleTripIds.slice(0, 5);
+		} else if (tripIds?.length) {
+			const ids = tripIds.slice(0, 5);
 			const settled = await Promise.allSettled(
 				ids.map(id => callTool('get_trip_details', { trip_id: id, include_schedule: false }))
 			);
@@ -399,10 +458,18 @@
 		clearRouteLayers();
 
 		const allRouteStops = [];
+		const currentStopMarker = markers.find((marker) => stopId && marker.id === stopId)
+			?? markers.find((marker) => marker.is_current);
 		const colorByRoute = new Map();
 		let colorIndex = 0;
 		routes.forEach((dir, i) => {
-			const valid = (dir.stops ?? []).filter((s) => s.lat && (s.lon || s.lng));
+			// Skip the current stop here — it's drawn as the highlighted blue marker
+			// below from `markers`, so drawing the route dot too would stack them.
+			const valid = (dir.stops ?? []).filter((s) =>
+				s.lat && (s.lon || s.lng)
+				&& (!stopId || s.id !== stopId)
+				&& !sameStopLocation(s, currentStopMarker)
+			);
 			const coordinates = routeCoordinates(dir);
 			if (coordinates.length < 2) return;
 
@@ -474,11 +541,20 @@
 			}
 		});
 
-		const validMarkers = markers.filter((m) => m.lat && (m.lon || m.lng));
+		// Prefer the blue/current marker, then discard any green search marker at
+		// the same physical location even if the upstream IDs differ.
+		const markerCandidates = markers
+			.filter((m) => m.lat && (m.lon || m.lng))
+			.sort((a, b) => Number(Boolean(b.is_current || (stopId && b.id === stopId))) - Number(Boolean(a.is_current || (stopId && a.id === stopId))));
+		const validMarkers = [];
+		for (const marker of markerCandidates) {
+			if (validMarkers.some((existing) => sameStopLocation(existing, marker))) continue;
+			validMarkers.push(marker);
+		}
 		for (const m of validMarkers) {
 			const el = document.createElement('div');
 			const hasId = !!m.id;
-			const isCurrent = !!m.is_current;
+			const isCurrent = !!m.is_current || (!!stopId && m.id === stopId);
 			if (isCurrent) el.className = 'oba-current-stop-marker';
 			Object.assign(el.style, {
 				width: isCurrent ? '20px' : '14px', height: isCurrent ? '20px' : '14px',
@@ -535,6 +611,10 @@
 
 	onMount(async () => {
 		if (!browser) return;
+		if (autoScroll) {
+			await tick();
+			requestAnimationFrame(() => containerEl?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
+		}
 
 		document.addEventListener('fullscreenchange', onFullscreenChange);
 
@@ -570,8 +650,9 @@
 			buildLayers();
 			buildVehicleMarkers();
 			mapLoading = false;
-			// Fetch GPS immediately — arrivals API may not include position in tripStatus
-			if (vehicleTripIds?.length > 0 || agencyId) {
+			// Stop-focused maps are refreshed by tracking.stopArrivals. Only generic
+			// trip/agency maps need the separate vehicle-position lookup.
+			if (agencyId || (!stopId && vehicleTripIds?.length > 0)) {
 				refreshVehiclePositions();
 			}
 		});
@@ -594,29 +675,37 @@
 		}
 	});
 
-	// Update vehicle markers whenever localVehicles or tracking state changes
+	// Tool cards may receive their vehicle list after this component has mounted.
+	// Keep the local, animated list in sync with that prop without treating every
+	// tracker update as a new GPS report.
 	$effect(() => {
-		const _v = localVehicles;
-		const trackedIds = new Set(tracking.trackers.map(t => t.trip_id));
-		if (map && map.isStyleLoaded()) {
-			buildVehicleMarkers(trackedIds);
-		}
+		const incoming = vehiclesProp;
+		if (incoming === lastVehiclesProp) return;
+		lastVehiclesProp = incoming;
+		localVehicles = [...incoming];
 	});
 
-	// Start/stop 30s vehicle refresh interval based on whether user is actively tracking
+	// Update vehicle markers whenever localVehicles or tracking state changes.
+	// The Set is (re)computed inside buildVehicleMarkers at rAF fire time,
+	// so cascading tracker/stopArrivals/localVehicles updates within one frame
+	// only trigger one DOM rebuild.
 	$effect(() => {
-		if (isTracked) {
-			if (!vehicleRefreshId) {
-				refreshVehiclePositions();
-				vehicleRefreshId = setInterval(refreshVehiclePositions, 30_000);
-			}
-		} else if (vehicleRefreshId) {
-			clearInterval(vehicleRefreshId);
-			vehicleRefreshId = null;
-		}
-		return () => {
-			if (vehicleRefreshId) { clearInterval(vehicleRefreshId); vehicleRefreshId = null; }
-		};
+		localVehicles;
+		tracking.trackers;
+		if (map && map.isStyleLoaded()) buildVehicleMarkers();
+	});
+
+	// Poll generic trip/agency maps directly. Stop-focused maps get their live
+	// positions from tracking.stopArrivals, including recently departed trips
+	// retained by the arrivals endpoint's minutes_before window.
+	$effect(() => {
+		const canPoll = !!agencyId || (!stopId && (vehicleTripIds?.length ?? 0) > 0);
+		if (!canPoll) return;
+		const refresh = () => refreshVehiclePositions(vehicleTripIds);
+		const ms = isTracked ? 30_000 : 60_000;
+		refresh();
+		vehicleRefreshId = setInterval(refresh, ms);
+		return () => { clearInterval(vehicleRefreshId); vehicleRefreshId = null; };
 	});
 
 	// Update vehicle positions from tracking store's live stop arrivals
@@ -624,9 +713,26 @@
 		if (!stopId) return;
 		const liveArrivals = tracking.stopArrivals[stopId];
 		if (!Array.isArray(liveArrivals) || !liveArrivals.length) return;
+		// minutes_before keeps a just-departed trip in this response, and OBA's
+		// embedded tripStatus continues carrying its current vehicle position.
 		const vehicled = liveArrivals.filter(a => a.vehicle_lat && a.vehicle_lon);
-		if (vehicled.length) {
-			localVehicles = vehicled.map(a => ({
+		if (!vehicled.length) return;
+
+		// OBA typically stops reporting GPS the moment a bus reaches/passes the stop.
+		// Keep the last-known position visible for trips the user is still tracking
+		// so the bus doesn't vanish right as it arrives.
+		const trackedTripIds = new Set(
+			tracking.trackers.filter(t => t.stop_id === stopId).map(t => t.trip_id)
+		);
+		const freshTripIds = new Set(vehicled.map(a => a.trip_id));
+		// This effect writes localVehicles, so reading it reactively here would make
+		// the effect trigger itself forever and freeze all page interactions.
+		const currentVehicles = untrack(() => localVehicles);
+		const preserved = currentVehicles.filter(
+			v => v.trip_id && trackedTripIds.has(v.trip_id) && !freshTripIds.has(v.trip_id)
+		);
+		localVehicles = [
+			...vehicled.map(a => ({
 				lat: a.vehicle_lat, lon: a.vehicle_lon,
 				vehicle_id: a.vehicle_id,
 				trip_id: a.trip_id,
@@ -635,12 +741,14 @@
 				headsign: a.headsign,
 				stops_away: a.number_of_stops_away,
 				bearing: a.vehicle_bearing ?? null,
-			}));
-		}
+			})),
+			...preserved,
+		];
 	});
 
 	onDestroy(() => {
 		if (vehicleRefreshId) clearInterval(vehicleRefreshId);
+		if (vehicleRebuildRaf != null) { cancelAnimationFrame(vehicleRebuildRaf); vehicleRebuildRaf = null; }
 		for (const entry of vehicleMarkerMap.values()) {
 			if (entry._animRaf) cancelAnimationFrame(entry._animRaf);
 			entry.popup?.remove();
@@ -691,7 +799,6 @@
 					</button>
 
 					{#if showThemes}
-						<button type="button" class="fixed inset-0 z-10" onclick={() => (showThemes = false)} aria-label="Close"></button>
 						<div class="absolute right-0 top-8 z-20 min-w-[110px] overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
 							{#each THEMES as t}
 								<button

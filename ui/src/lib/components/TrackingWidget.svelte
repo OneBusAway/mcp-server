@@ -16,10 +16,16 @@
 		passed:     'Passed this stop',
 		done:       'Done',
 	};
+
+	function stopTracking(event, trackerId) {
+		event.preventDefault();
+		event.stopPropagation();
+		tracking.remove(trackerId);
+	}
 </script>
 
 {#if browser && tracking.trackers.length > 0}
-	<div class="fixed bottom-4 right-4 z-50 flex w-72 flex-col gap-2">
+	<div class="fixed bottom-4 right-4 flex w-72 flex-col gap-2" style="z-index: 10000; pointer-events: auto;">
 		{#each tracking.trackers as t (t.id)}
 			<div class="flex items-center gap-2.5 rounded-xl border bg-white px-3 py-2.5 shadow-lg dark:bg-zinc-900
 				{t.status === 'arriving' || t.status === 'passed' ? 'border-green-300 dark:border-green-700' :
@@ -49,6 +55,8 @@
 							{/if}
 						{:else if t.stops_away === 0}
 							At stop
+						{:else if t.predicted_arrival}
+							Expected · {t.predicted_arrival}
 						{:else}
 							Waiting for update…
 						{/if}
@@ -59,9 +67,11 @@
 				<!-- Cancel -->
 				<button
 					type="button"
-					onclick={() => tracking.remove(t.id)}
+					onpointerdown={(event) => stopTracking(event, t.id)}
 					title="Stop tracking"
-					class="shrink-0 rounded p-0.5 text-zinc-400 transition hover:text-zinc-700 dark:hover:text-zinc-200"
+					aria-label={`Stop tracking Route ${t.route_name}`}
+					class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700 active:scale-95 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+					style="position: relative; z-index: 1; pointer-events: auto; touch-action: manipulation;"
 				>
 					<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
 						<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>

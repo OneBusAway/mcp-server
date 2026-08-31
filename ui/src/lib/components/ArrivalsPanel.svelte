@@ -9,11 +9,12 @@
 	/** @type {{ stopId?: string | null, stopName?: string, onClose?: () => void, initialArrivals?: any[] }} */
 	let { stopId = null, stopName = '', onClose = null, initialArrivals = [] } = $props();
 
-	let arrivals = $state(initialArrivals.length ? [...initialArrivals] : []);
+	let arrivals = $state([]);
 	let loading  = $state(false);
 	let error    = $state('');
-	let lastAt   = $state(initialArrivals.length ? new Date() : null);
-	const hasRealtimeData = $derived(arrivals.some((arrival) => arrival.predicted));
+	let lastAt   = $state(null);
+	let lastInitialArrivals = null;
+	const MINUTES_BEFORE = 15;
 	const stopLabel = $derived(
 		stopName && stopId && stopName !== stopId
 			? `${stopName} · ${stopId}`
@@ -26,20 +27,18 @@
 		for (const tracker of tracked) {
 			const idx = result.findIndex((arrival) => arrival.trip_id === tracker.trip_id);
 			if (idx !== -1) {
-				// Trip is in the API response. If prediction was dropped (bus just
-				// passed the stop — OBA stops sending GPS), restore the tracker's
-				// last-known live data so the row doesn't flip back to "Scheduled".
+				// Overlay the tracking state so the row keeps its arrival/departure
+				// status across stop-feed refreshes.
 				const existing = result[idx];
-				if (!existing.predicted && tracker.predicted_arrival) {
-					result[idx] = {
-						...existing,
-						predicted: true,
-						predicted_arrival: tracker.predicted_arrival,
-						predicted_arrival_display: tracker.predicted_arrival,
-						deviation_seconds: tracker.deviation_seconds ?? existing.deviation_seconds ?? 0,
-						deviation_label: tracker.deviation_label ?? existing.deviation_label ?? null,
-					};
-				}
+				result[idx] = {
+					...existing,
+					predicted: existing.predicted || Boolean(tracker.predicted_arrival),
+					predicted_arrival: tracker.predicted_arrival || existing.predicted_arrival,
+					predicted_arrival_display: tracker.predicted_arrival || existing.predicted_arrival_display,
+					number_of_stops_away: tracker.stops_away ?? existing.number_of_stops_away,
+					deviation_seconds: tracker.deviation_seconds ?? existing.deviation_seconds ?? 0,
+					deviation_label: tracker.deviation_label ?? existing.deviation_label ?? null,
+				};
 				continue;
 			}
 			// OBA can briefly omit a tracked trip between updates. Keep a lightweight
@@ -64,15 +63,24 @@
 		return result;
 	}
 
-	const trackedArrivals    = $derived(arrivals.filter(a => !!trackedArrival(a)));
-	const nonTrackedArrivals = $derived(arrivals.filter(a => !trackedArrival(a)).slice(0, 10));
+	// This derives from both the stop feed and tracker state, so status changes
+	// update the panel immediately after each stop-level poll.
+	const displayArrivals = $derived(ensureTrackedInArrivals(arrivals));
+	const hasRealtimeData = $derived(displayArrivals.some((arrival) => arrival.predicted));
+	const trackedArrivals    = $derived(displayArrivals.filter(a => !!trackedArrival(a)));
+	const nonTrackedArrivals = $derived(displayArrivals.filter(a => !trackedArrival(a)).slice(0, 10));
 
 	async function load() {
 		if (!stopId) return;
 		loading = true;
 		error   = '';
 		try {
-			const result = await callTool('get_arrivals_for_stop', { stop_id: stopId, minutes_before: 10, minutes_after: 60 });
+			const result = await callTool('get_arrivals_for_stop', {
+				stop_id: stopId,
+				minutes_before: MINUTES_BEFORE,
+				minutes_after: 60,
+				limit: 50,
+			});
 			arrivals = ensureTrackedInArrivals(normalizeArrivals(items(result)));
 			lastAt   = new Date();
 		} catch (e) {
@@ -88,6 +96,16 @@
 		);
 	}
 
+	// Arrival cards stream their data in after mounting. Sync only when the
+	// input list itself changes, leaving subsequent tracker polls in control.
+	$effect(() => {
+		const incoming = initialArrivals;
+		if (incoming === lastInitialArrivals) return;
+		lastInitialArrivals = incoming;
+		arrivals = [...incoming];
+		lastAt = incoming.length ? new Date() : null;
+	});
+
 	async function toggleArrivalTracking(arrival) {
 		const existing = trackedArrival(arrival);
 		if (existing) {
@@ -100,8 +118,9 @@
 			try {
 				const result = await callTool('get_arrivals_for_stop', {
 					stop_id: stopId,
-					minutes_before: 10,
+					minutes_before: MINUTES_BEFORE,
 					minutes_after: 60,
+					limit: 50,
 				});
 				const refreshed = normalizeArrivals(items(result));
 				trackable = refreshed.find((item) => item.trip_id === arrival.trip_id) ?? arrival;
