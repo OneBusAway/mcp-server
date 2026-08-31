@@ -122,6 +122,18 @@ type OBAClient struct {
 	logger     *log.Logger
 	db         *cachedb.Queries // optional persistent cache; nil = memory-only
 
+	// clock controls cache-TTL comparisons. It defaults to time.Now and is
+	// overridable in tests so TTL expiry can be exercised without real waits.
+	// Elapsed measurements (fetch latency logging) intentionally keep the
+	// real time.Now to preserve monotonic-clock behavior.
+	clock func() time.Time
+
+	// waiterEntered is called once by each coalesced waiter immediately before
+	// it blocks in the select inside waitForInFlight. It is nil in production
+	// and only used by tests to sequence "both waiters have actually joined
+	// the leader" without a sleep-based race.
+	waiterEntered func()
+
 	cache    map[string]cacheEntry
 	inflight map[string]*inFlightRequest
 	cacheMu  sync.Mutex
@@ -144,6 +156,7 @@ func New(baseURL, apiKey string, logger *log.Logger, db *cachedb.Queries) *OBACl
 		httpClient:  &http.Client{Timeout: 15 * time.Second},
 		logger:      logger,
 		db:          db,
+		clock:       time.Now,
 		cache:       make(map[string]cacheEntry),
 		inflight:    make(map[string]*inFlightRequest),
 		upstreamSem: make(chan struct{}, maxConcurrentCalls),
@@ -259,6 +272,9 @@ func (c *OBAClient) finishInFlight(key string, call *inFlightRequest, data json.
 }
 
 func (c *OBAClient) waitForInFlight(ctx context.Context, call *inFlightRequest) (json.RawMessage, error) {
+	if c.waiterEntered != nil {
+		c.waiterEntered()
+	}
 	select {
 	case <-ctx.Done():
 		return nil, upstreamError(ErrorCancelled, false, ctx.Err())
@@ -284,7 +300,7 @@ func (c *OBAClient) GetWithCacheState(ctx context.Context, path string, params u
 	key := cacheKey(path, query)
 	ttl := ttlForPath(path)
 	op := opFromPath(path)
-	now := time.Now()
+	now := c.clock()
 	if result, ok := c.memoryCacheGet(key, now); ok {
 		c.logRequest(op, "hit", 0, len(result), nil)
 		return result, CacheHit, nil
@@ -301,10 +317,11 @@ func (c *OBAClient) GetWithCacheState(ctx context.Context, path string, params u
 	}
 	result, err := c.fetch(ctx, path, query, op)
 	if err == nil && cacheableResponse(result) {
-		expiresAt := time.Now().Add(ttl)
-		c.memoryCacheSet(key, result, expiresAt, time.Now())
+		writeNow := c.clock()
+		expiresAt := writeNow.Add(ttl)
+		c.memoryCacheSet(key, result, expiresAt, writeNow)
 		if c.db != nil && ttl >= staticTTL {
-			_ = c.db.PruneExpired(ctx, time.Now().Unix())
+			_ = c.db.PruneExpired(ctx, writeNow.Unix())
 			_ = c.db.SetEntry(ctx, cachedb.SetEntryParams{Key: key, Data: result, ExpiresAt: expiresAt.Unix()})
 		}
 	}
@@ -399,6 +416,16 @@ func (c *OBAClient) doRequest(ctx context.Context, requestURL string) (json.RawM
 	}
 	body, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes+1))
 	if err != nil {
+		// Mid-body errors caused by ctx cancellation or Client.Timeout must
+		// be reported as cancellation/timeout so callers retry (timeout) or
+		// bail (cancel) appropriately. Otherwise a slow-body upstream would
+		// masquerade as a hard UPSTREAM_BAD_RESPONSE and never retry.
+		if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
+			return nil, upstreamError(ErrorCancelled, false, err)
+		}
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return nil, upstreamError(ErrorTimeout, true, err)
+		}
 		return nil, upstreamError(ErrorBadResponse, false, err)
 	}
 	if len(body) > maxResponseBytes {
