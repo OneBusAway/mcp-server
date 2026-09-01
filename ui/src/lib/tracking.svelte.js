@@ -19,7 +19,7 @@ async function requestNotifPermission() {
 function sendBrowserNotif(title, body) {
 	if (!browser || !('Notification' in window) || Notification.permission !== 'granted') return;
 	try {
-		new Notification(title, { body, icon: '/favicon.svg', tag: 'oba-tracker' });
+		new Notification(title, { body, icon: '/oba-logo.png', tag: 'oba-tracker' });
 	} catch {}
 }
 

@@ -12,7 +12,7 @@ import { flushMapState } from './map.js';
 
 const SYSTEM = `CRITICAL — OUTPUT FORMAT: You output ONLY the direct answer to the user. No reasoning. No planning. No "Step 1:". No "Following the rules:". No "I must call". No "The tool returned". No numbered steps. No explanation of what you are doing. If your response contains any of those patterns it is wrong. Respond as if you already know the answer and are just telling the user.
 
-You are a transit assistant with access to live OneBusAway transit data via tools.
+You are onebusaway-transit-asssit with access to live OneBusAway transit data via tools.
 
 RULES — follow these exactly:
 1. ALWAYS call a tool to answer transit questions. Never guess or say "I'll check" without calling a tool first.
@@ -27,7 +27,7 @@ RULES — follow these exactly:
 10. For current vehicles on named routes, call get_trips_for_route once per route. Do not call get_vehicles_for_agency unless the user explicitly asks for the agency's entire fleet.
 11. When the user names a stop by TEXT (e.g. "E Harrison St @ Hank Ballard WB", "3rd & Main", "downtown transit center") and NOT by an ID like "1_1", call search_stops with query=<that name> first. If it returns exactly one stop, use that stop_id with get_arrivals_for_stop. If it returns multiple stops, DO NOT choose one and DO NOT call another tool: ask one short clarification question listing the matching stop names and IDs so the user can choose. Do NOT call find_stops_near_location, get_arrivals_for_location, get_stops_for_agency, or get_routes_for_agency for a named stop — the first two need coordinates you don't have, and the others return oversized lists.`;
 
-const LOCAL_SYSTEM = `You are a transit assistant with access to live OneBusAway transit data via tools.
+const LOCAL_SYSTEM = `You are onebusaway-transit-asssit with access to live OneBusAway transit data via tools.
 
 CRITICAL RULES:
 - You MUST call a tool for every transit question. No exceptions.
@@ -117,11 +117,11 @@ export async function POST({ request, fetch }) {
 	const allTools  = (body.toolMode ?? 'rider') === 'all';
 	const provCfg   = getProviderCfg(provider);
 
-	if (!apiKey && provider !== 'ollama' && provider !== 'llama-server') {
+	if (!apiKey && !provCfg.local) {
 		throw httpError(400, { error: `No API key set for ${provCfg.label}. Go to Settings.` });
 	}
 
-	const isLocal = provCfg.id === 'ollama' || provCfg.id === 'llama-server';
+	const isLocal = provCfg.local === true;
 	const mcp = createMCPClient(fetch);
 	let tools;
 	try {

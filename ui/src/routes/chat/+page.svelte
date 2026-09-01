@@ -101,10 +101,12 @@
 	}
 
 	const SUGGESTIONS = [
-		'What buses are near downtown?',
-		'When is the next bus at my stop?',
-		'Which routes serve the university?',
-		'Show me 5 stops near me',
+		{ text: 'Which agencies and feeds are available?', icon: 'activity' },
+		{ text: 'Which routes operate in this area?', icon: 'route' },
+		{ text: 'What stops are near a location?', icon: 'map-pin' },
+		{ text: 'When is the next arrival at a stop?', icon: 'clock' },
+		{ text: 'Show the schedule for a route or stop.', icon: 'calendar' },
+		{ text: 'Where are the active vehicles right now?', icon: 'bus' },
 	];
 
 	// Scroll to bottom on new messages, loading, and every streaming text update
@@ -132,7 +134,7 @@
 	async function submit(text = chat.draft.trim()) {
 		if (!text || chat.loading || chat.streaming) return;
 
-		if (!settings.apiKey && settings.provider !== 'ollama' && settings.provider !== 'llama-server') {
+		if (!settings.apiKey && !settings.providerConfig?.local) {
 			chat.error = `Set your ${settings.providerConfig?.label ?? 'AI'} key in Settings first.`;
 			return;
 		}
@@ -205,22 +207,29 @@
 
 			<!-- Empty state -->
 			{#if chat.messages.length === 0 && !chat.loading}
-				<div class="py-12 text-center">
-					<div class="mx-auto mb-5 h-16 w-16 overflow-hidden rounded-2xl shadow-md">
-						<img src="/oba-mcp.png" alt="OBA" class="h-full w-full object-cover" />
+				<div class="mx-auto max-w-3xl py-8 sm:py-14">
+					<div class="mb-8 text-center">
+						<div class="mx-auto mb-4 h-14 w-14 overflow-hidden rounded-xl ring-1 ring-zinc-200 dark:ring-zinc-800">
+							<img src="/oba-mcp.png" alt="OBA" class="h-full w-full object-cover" />
+						</div>
+						<h2 class="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">onebusaway-transit-asssit</h2>
+						<p class="mx-auto mt-2 max-w-md text-sm leading-6 text-zinc-500 dark:text-zinc-400">
+							Ask about agencies, routes, stops, schedules, and live arrivals.
+						</p>
 					</div>
-					<h2 class="mb-1 text-xl font-bold text-zinc-900 dark:text-zinc-100">Transit Assistant</h2>
-					<p class="mb-7 text-sm text-zinc-500 dark:text-zinc-400">
-						Ask anything about buses, stops, routes, and real-time arrivals.
-					</p>
+
 					<div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
 						{#each SUGGESTIONS as s}
 							<button
 								type="button"
-								onclick={() => submit(s)}
-								class="rounded-xl border border-zinc-200 bg-white px-4 py-3 text-left text-sm text-zinc-600 shadow-sm transition hover:border-oba-300 hover:bg-oba-50 hover:text-oba-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:border-oba-700 dark:hover:bg-oba-500/10 dark:hover:text-oba-300"
+								onclick={() => submit(s.text)}
+								class="group flex min-h-14 items-center gap-3 rounded-xl border border-zinc-200 bg-white px-3.5 py-3 text-left text-sm text-zinc-700 transition hover:border-oba-300 hover:bg-oba-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:border-oba-800 dark:hover:bg-oba-500/10 dark:hover:text-oba-300"
 							>
-								{s}
+								<span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-oba-50 text-oba-600 dark:bg-oba-500/10 dark:text-oba-400">
+									<Icon name={s.icon} cls="h-4 w-4" />
+								</span>
+								<span class="flex-1 leading-5">{s.text}</span>
+								<Icon name="chevron-right" cls="h-4 w-4 shrink-0 text-zinc-300 group-hover:text-oba-500 dark:text-zinc-600" />
 							</button>
 						{/each}
 					</div>

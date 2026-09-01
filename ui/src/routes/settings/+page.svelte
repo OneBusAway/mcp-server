@@ -61,6 +61,7 @@
 		if (!modelList.find((m) => m.id === model)) {
 			model = (modelList[0] ?? prov?.models[0])?.id ?? model;
 		}
+		if (prov?.local) fetchLiveModels();
 	}
 
 	function save() {
@@ -186,7 +187,7 @@
 								title="Fetch live model list from provider"
 							>
 								<Icon name="refresh-cw" cls="h-3 w-3 {fetchingModels ? 'animate-spin' : ''}" />
-								{fetchingModels ? 'Fetching…' : liveModels ? `${liveModels.length} models ↺` : 'Fetch models'}
+								{fetchingModels ? 'Searching…' : liveModels ? `${liveModels.length} models ↺` : currentProvider.local ? 'Find local models' : 'Fetch models'}
 							</button>
 						{/if}
 					</div>
@@ -199,6 +200,11 @@
 							<option value={m.id}>{m.label}</option>
 						{/each}
 					</select>
+					{#if currentProvider.local}
+						<p class="mt-1.5 text-xs text-zinc-400 dark:text-zinc-500">
+							Searching <code class="rounded bg-zinc-100 px-1 dark:bg-zinc-800">{currentProvider.baseUrl}/models</code> on this machine. Start the local server, then press refresh if needed.
+						</p>
+					{/if}
 					{#if liveModels?.length === 0}
 						<p class="mt-1 text-xs text-amber-500">No models found — check your API key or provider URL.</p>
 					{/if}
