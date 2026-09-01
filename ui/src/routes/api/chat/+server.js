@@ -10,7 +10,9 @@ import { flushMapState } from './map.js';
 // System prompts
 // ---------------------------------------------------------------------------
 
-const SYSTEM = `You are a transit assistant with access to live OneBusAway transit data via tools.
+const SYSTEM = `CRITICAL — OUTPUT FORMAT: You output ONLY the direct answer to the user. No reasoning. No planning. No "Step 1:". No "Following the rules:". No "I must call". No "The tool returned". No numbered steps. No explanation of what you are doing. If your response contains any of those patterns it is wrong. Respond as if you already know the answer and are just telling the user.
+
+You are a transit assistant with access to live OneBusAway transit data via tools.
 
 RULES — follow these exactly:
 1. ALWAYS call a tool to answer transit questions. Never guess or say "I'll check" without calling a tool first.
@@ -200,12 +202,60 @@ async function streamAnthropic({ apiKey, model, msgs, tools, controller, mcp }) 
 // ---------------------------------------------------------------------------
 // OpenAI-compatible streaming
 // ---------------------------------------------------------------------------
+const _GOOGLE_SCHEMA_ALLOWED = new Set([
+	'type', 'description', 'properties', 'required', 'items', 'enum', 'nullable', 'format',
+]);
+
+function _sanitizeSchemaForGoogle(schema) {
+	if (!schema || typeof schema !== 'object') return schema;
+	if (Array.isArray(schema)) return schema.map(_sanitizeSchemaForGoogle);
+	const result = {};
+	for (const [k, v] of Object.entries(schema)) {
+		if (!_GOOGLE_SCHEMA_ALLOWED.has(k)) continue;
+		// `properties` maps property NAMES → sub-schemas; preserve names, sanitize values only.
+		if (k === 'properties' && v && typeof v === 'object' && !Array.isArray(v)) {
+			result.properties = Object.fromEntries(
+				Object.entries(v).map(([name, sub]) => [name, _sanitizeSchemaForGoogle(sub)])
+			);
+		} else {
+			result[k] = _sanitizeSchemaForGoogle(v);
+		}
+	}
+	return result;
+}
+
+const _DEFAULT_ADAPTER = {
+	sanitizeSchema:  (s) => s,
+	extraBody:       ()  => ({}),
+	extractToolSig:  ()  => null,
+	embedToolSig:    ()  => ({}),
+};
+
+const PROVIDER_ADAPTERS = {
+	'google-ai-studio': {
+		sanitizeSchema: _sanitizeSchemaForGoogle,
+		extraBody:      () => ({}),
+		// Gemini thinking models return thought_signature under extra_content.google
+		extractToolSig: (tc) => tc.extra_content?.google?.thought_signature ?? null,
+		embedToolSig:   (sig) => ({ extra_content: { google: { thought_signature: sig } } }),
+	},
+	'openrouter': {
+		..._DEFAULT_ADAPTER,
+		// Ask OpenRouter to strip reasoning tokens from the stream
+		extraBody: () => ({ reasoning: { exclude: true } }),
+	},
+};
+
+function getProviderAdapter(id) {
+	return PROVIDER_ADAPTERS[id] ?? _DEFAULT_ADAPTER;
+}
 
 async function streamOpenAI({ provCfg, apiKey, model, msgs, tools, controller, isLocal, mcp }) {
 	const baseURL = provCfg.baseUrl ?? 'https://api.openai.com/v1';
+	const adapter  = getProviderAdapter(provCfg.id);
 	const openaiTools = tools.map((t) => ({
 		type: 'function',
-		function: { name: t.name, description: t.description, parameters: t.input_schema },
+		function: { name: t.name, description: t.description, parameters: adapter.sanitizeSchema(t.input_schema) },
 	}));
 
 	const system = isLocal ? LOCAL_SYSTEM : SYSTEM;
@@ -222,17 +272,33 @@ async function streamOpenAI({ provCfg, apiKey, model, msgs, tools, controller, i
 				'HTTP-Referer': 'http://localhost:5173',
 				'X-Title': 'OBA Transit UI',
 			},
-			body: JSON.stringify({ model, messages: oaiMsgs, tools: openaiTools, max_tokens: 2048, stream: true }),
+			body: JSON.stringify({
+					model, messages: oaiMsgs, tools: openaiTools, max_tokens: 2048, stream: true,
+					...adapter.extraBody(),
+				}),
 		});
 
 		if (!res.ok) {
-			const err = await res.json().catch(() => ({}));
-			throw new Error(err.error?.message ?? `Provider error: HTTP ${res.status}`);
+			const body = await res.text().catch(() => '');
+			let errMsg;
+			try { errMsg = JSON.parse(body)?.error?.message; } catch {}
+			console.error(`[${provCfg.id}] HTTP ${res.status}:`, errMsg ?? body.slice(0, 400));
+			throw new Error(errMsg ?? `${provCfg.label} error: HTTP ${res.status}`);
 		}
 
-		const { assistantContent, finishReason, toolCalls } = await readOpenAIStream(res, controller);
+		// Some providers return a JSON error body with HTTP 200 when they can't stream.
+		const ct = res.headers.get('content-type') ?? '';
+		if (!ct.includes('event-stream') && !ct.includes('octet-stream')) {
+			const body = await res.text().catch(() => '');
+			let errMsg;
+			try { errMsg = JSON.parse(body)?.error?.message; } catch {}
+			console.error(`[${provCfg.id}] non-stream 200 body:`, body.slice(0, 400));
+			throw new Error(errMsg ?? `${provCfg.label} returned a non-streaming response — check your API key and model name.`);
+		}
 
-		if (!toolCalls.length || finishReason === 'stop') break;
+		const { assistantContent, toolCalls } = await readOpenAIStream(res, controller, adapter);
+
+		if (!toolCalls.length) break;
 
 		oaiMsgs = [...oaiMsgs, {
 			role: 'assistant',
@@ -253,13 +319,14 @@ async function streamOpenAI({ provCfg, apiKey, model, msgs, tools, controller, i
 	flushMapState(controller, mapState, sse);
 }
 
-async function readOpenAIStream(res, controller) {
+async function readOpenAIStream(res, controller, adapter = _DEFAULT_ADAPTER) {
 	const reader = res.body.getReader();
 	const decoder = new TextDecoder();
 	let buf = '';
 	let finishReason = null;
 	let assistantContent = '';
 	let ended = false;
+	let inThink = false;
 	const tcParts = {}; // index → { id, name, args }
 
 	while (!ended) {
@@ -278,21 +345,46 @@ async function readOpenAIStream(res, controller) {
 			let chunk;
 			try { chunk = JSON.parse(raw); } catch { continue; }
 
+			// Some providers embed errors inside the SSE stream.
+			if (chunk.error) throw new Error(chunk.error.message ?? JSON.stringify(chunk.error));
+
 			const delta = chunk.choices?.[0]?.delta;
 			const fr = chunk.choices?.[0]?.finish_reason;
 			if (fr) finishReason = fr;
 
 			if (delta?.content) {
-				assistantContent += delta.content;
-				sse(controller, { t: 'text', v: delta.content });
+				let text = delta.content;
+				if (inThink) {
+					const end = text.indexOf('</think>');
+					if (end >= 0) { inThink = false; text = text.slice(end + 8); }
+					else { text = ''; }
+				}
+				if (text) {
+					const start = text.indexOf('<think>');
+					if (start >= 0) {
+						const end = text.indexOf('</think>', start);
+						if (end >= 0) {
+							text = text.slice(0, start) + text.slice(end + 8);
+						} else {
+							inThink = true;
+							text = text.slice(0, start);
+						}
+					}
+				}
+				if (text) {
+					assistantContent += text;
+					sse(controller, { t: 'text', v: text });
+				}
 			}
 
 			if (delta?.tool_calls) {
 				for (const tc of delta.tool_calls) {
-					if (!tcParts[tc.index]) tcParts[tc.index] = { id: '', name: '', args: '' };
+					if (!tcParts[tc.index]) tcParts[tc.index] = { id: '', name: '', args: '', sig: null };
 					if (tc.id)                  tcParts[tc.index].id   = tc.id;
 					if (tc.function?.name)      tcParts[tc.index].name += tc.function.name;
 					if (tc.function?.arguments) tcParts[tc.index].args += tc.function.arguments;
+					const sig = adapter.extractToolSig(tc);
+					if (sig) tcParts[tc.index].sig = sig;
 				}
 			}
 		}
@@ -301,6 +393,7 @@ async function readOpenAIStream(res, controller) {
 	const toolCalls = Object.values(tcParts).map((tc) => ({
 		id: tc.id, type: 'function',
 		function: { name: tc.name, arguments: tc.args },
+		...(tc.sig && adapter.embedToolSig(tc.sig)),
 	}));
 
 	return { assistantContent, finishReason, toolCalls };
