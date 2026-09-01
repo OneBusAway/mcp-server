@@ -2,37 +2,9 @@ package main
 
 import (
 	"crypto/subtle"
-	"fmt"
 	"net/http"
-	"net/url"
 	"strings"
 )
-
-func parseAllowedOrigins(raw string) ([]string, error) {
-	if strings.TrimSpace(raw) == "" {
-		return nil, nil
-	}
-	seen := make(map[string]struct{})
-	origins := make([]string, 0)
-	for _, value := range strings.Split(raw, ",") {
-		origin := strings.TrimSpace(value)
-		if origin == "" {
-			return nil, fmt.Errorf("OBA_ALLOWED_ORIGINS contains an empty origin")
-		}
-		if origin == "*" {
-			return nil, fmt.Errorf("OBA_ALLOWED_ORIGINS must not contain a wildcard")
-		}
-		u, err := url.Parse(origin)
-		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" || u.String() != origin {
-			return nil, fmt.Errorf("invalid origin %q in OBA_ALLOWED_ORIGINS", origin)
-		}
-		if _, ok := seen[origin]; !ok {
-			seen[origin] = struct{}{}
-			origins = append(origins, origin)
-		}
-	}
-	return origins, nil
-}
 
 func protectedHTTPHandler(next http.Handler, allowedOrigins []string, token string) http.Handler {
 	allowed := make(map[string]struct{}, len(allowedOrigins))

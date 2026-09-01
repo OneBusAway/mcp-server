@@ -1,9 +1,13 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
+	"log"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -19,6 +23,83 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
+
+func TestStdioTransportInitializeAndListTools(t *testing.T) {
+	obaClient := client.New("http://example.invalid", "fixture-api-key", nil, nil)
+	mcpServer := server.NewMCPServer("OBA Transit Assistant", "1.0.0", server.WithToolCapabilities(true))
+	tools.RegisterProfile(mcpServer, obaClient, tools.ToolProfileAll)
+	stdioServer := server.NewStdioServer(mcpServer)
+	stdioServer.SetErrorLogger(log.New(io.Discard, "", 0))
+
+	stdinReader, stdinWriter := io.Pipe()
+	stdoutReader, stdoutWriter := io.Pipe()
+	ctx, cancel := context.WithCancel(context.Background())
+	result := make(chan error, 1)
+	go func() {
+		result <- stdioServer.Listen(ctx, stdinReader, stdoutWriter)
+	}()
+	reader := bufio.NewReader(stdoutReader)
+
+	writeStdioRequest(t, stdinWriter, `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"`+mcp.LATEST_PROTOCOL_VERSION+`","capabilities":{},"clientInfo":{"name":"transport-e2e","version":"1.0.0"}}}`)
+	var initialized struct {
+		Result struct {
+			ProtocolVersion string `json:"protocolVersion"`
+		} `json:"result"`
+	}
+	readStdioResponse(t, reader, &initialized)
+	if initialized.Result.ProtocolVersion == "" {
+		t.Fatal("stdio initialize response omitted the negotiated protocol version")
+	}
+
+	writeStdioRequest(t, stdinWriter, `{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}`)
+	var listed struct {
+		Result struct {
+			Tools []struct {
+				Name string `json:"name"`
+			} `json:"tools"`
+		} `json:"result"`
+	}
+	readStdioResponse(t, reader, &listed)
+	foundStop := false
+	for _, tool := range listed.Result.Tools {
+		if tool.Name == "get_stop" {
+			foundStop = true
+			break
+		}
+	}
+	if !foundStop {
+		t.Fatal("stdio tools/list did not advertise get_stop")
+	}
+
+	cancel()
+	stdinWriter.Close()
+	select {
+	case err := <-result:
+		if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, context.Canceled) {
+			t.Fatalf("stdio shutdown: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("stdio server did not shut down within 5s")
+	}
+}
+
+func writeStdioRequest(t *testing.T, writer io.Writer, request string) {
+	t.Helper()
+	if _, err := io.WriteString(writer, request+"\n"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func readStdioResponse(t *testing.T, reader *bufio.Reader, destination any) {
+	t.Helper()
+	line, err := reader.ReadBytes('\n')
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(line, destination); err != nil {
+		t.Fatalf("decode stdio response: %v", err)
+	}
+}
 
 func TestHTTPTransportInitializeListAndCallTool(t *testing.T) {
 	upstream := obafixture.New(map[string]obafixture.Response{
@@ -57,11 +138,15 @@ func TestHTTPTransportInitializeListAndCallTool(t *testing.T) {
 	if err := mcpClient.Start(ctx); err != nil {
 		t.Fatalf("start MCP client: %v", err)
 	}
-	if _, err := mcpClient.Initialize(ctx, mcp.InitializeRequest{Params: mcp.InitializeParams{
+	initialized, err := mcpClient.Initialize(ctx, mcp.InitializeRequest{Params: mcp.InitializeParams{
 		ProtocolVersion: mcp.LATEST_PROTOCOL_VERSION,
 		ClientInfo:      mcp.Implementation{Name: "transport-e2e", Version: "1.0.0"},
-	}}); err != nil {
+	}})
+	if err != nil {
 		t.Fatalf("initialize MCP client: %v", err)
+	}
+	if initialized.ProtocolVersion == "" {
+		t.Fatal("initialize response omitted the negotiated MCP protocol version")
 	}
 
 	listed, err := mcpClient.ListTools(ctx, mcp.ListToolsRequest{})
@@ -96,6 +181,59 @@ func TestHTTPTransportInitializeListAndCallTool(t *testing.T) {
 	requests := upstream.Requests()
 	if len(requests) != 1 || requests[0].Query.Get("key") != "fixture-api-key" {
 		t.Fatalf("upstream requests = %#v, want one authenticated fixture request", requests)
+	}
+}
+
+func TestHTTPTransportRejectsMalformedJSONRPC(t *testing.T) {
+	mcpServer := server.NewMCPServer("OBA Transit Assistant", "1.0.0", server.WithToolCapabilities(true))
+	handler := newProtectedMCPHTTPHandler(mcpServer, nil, "fixture-token")
+	request := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Authorization", "Bearer fixture-token")
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code < http.StatusBadRequest || response.Code >= http.StatusInternalServerError {
+		t.Fatalf("malformed JSON-RPC status = %d, want a client error", response.Code)
+	}
+}
+
+func TestHTTPTransportStartsAndShutsDown(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	httpServer := &http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusNoContent)
+		}),
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	result := make(chan error, 1)
+	go func() {
+		result <- serveHTTPListener(ctx, httpServer, listener)
+	}()
+
+	response, err := http.Get("http://" + listener.Addr().String())
+	if err != nil {
+		cancel()
+		t.Fatalf("request started HTTP transport: %v", err)
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusNoContent {
+		cancel()
+		t.Fatalf("startup status = %d, want %d", response.StatusCode, http.StatusNoContent)
+	}
+
+	cancel()
+	select {
+	case err := <-result:
+		if err != nil {
+			t.Fatalf("graceful shutdown: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Streamable HTTP server did not shut down within 5s")
 	}
 }
 

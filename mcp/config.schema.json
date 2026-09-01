@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://onebusaway.org/schemas/oba-mcp-config.json",
+  "title": "OneBusAway MCP Configuration",
+  "description": "Runtime configuration for oba-mcp. Environment variables may override these values.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "upstream": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "base-url": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https?://",
+          "default": "http://localhost:4000",
+          "description": "Base URL of Maglev or another OBA-compatible API."
+        },
+        "api-key": {
+          "type": "string",
+          "description": "OBA API key. Prefer OBA_API_KEY or a secret manager in production."
+        }
+      }
+    },
+    "mcp": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "transport": {
+          "type": "string",
+          "enum": ["stdio", "streamable-http"],
+          "default": "stdio"
+        },
+        "tool-profile": {
+          "type": "string",
+          "enum": ["all", "rider"],
+          "default": "all"
+        }
+      }
+    },
+    "http": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "bind-address": {
+          "type": "string",
+          "minLength": 1,
+          "default": "127.0.0.1"
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "default": 8080
+        },
+        "auth-token": {
+          "type": "string",
+          "description": "Private oba-mcp bearer token required by Streamable HTTP. This is service authentication, not the complete MCP authorization model. Prefer OBA_HTTP_AUTH_TOKEN in production."
+        },
+        "allowed-origins": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uri",
+            "pattern": "^https?://"
+          },
+          "uniqueItems": true,
+          "default": []
+        }
+      }
+    },
+    "logging": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "default": "/tmp/oba-mcp.log"
+        },
+        "format": {
+          "type": "string",
+          "enum": ["text", "json"],
+          "default": "text"
+        }
+      }
+    },
+    "cache": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "SQLite cache path. Defaults to the platform user cache directory; an empty string disables persistent caching and retains the in-memory cache."
+        }
+      }
+    }
+  }
+}

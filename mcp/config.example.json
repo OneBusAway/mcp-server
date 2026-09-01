@@ -1,0 +1,14 @@
+{
+  "$schema": "./config.schema.json",
+  "upstream": {
+    "base-url": "http://localhost:4000"
+  },
+  "mcp": {
+    "transport": "stdio",
+    "tool-profile": "all"
+  },
+  "logging": {
+    "path": "/tmp/oba-mcp.log",
+    "format": "text"
+  }
+}

@@ -16,30 +16,75 @@ make mcp-add          # registers with Claude Code, all projects
 # Local HTTP mode — requires a bearer token, for development only
 OBA_API_KEY=test OBA_HTTP_AUTH_TOKEN=local-dev-token make serve-http
 
+# Explicit JSON + dotenv files
+make run-config CONFIG=config.json ENV_FILE=.env
+
 # Docker
 docker compose up -d
 ```
 
 ## Requirements
 
-- Go 1.23+ (local builds)
+- Go 1.26.5+ (local builds; matches `go.mod`)
 - A running [maglev](https://github.com/OneBusAway/maglev) or OBA-compatible API at `$OBA_BASE_URL`
 
 ## Configuration
 
+The server supports JSON, dotenv, and deployment environment variables. Every
+source resolves into one typed configuration with this precedence:
+
+```text
+compiled defaults < config.json < .env < process environment
+```
+
+Neither file is required, so existing environment-only deployments continue
+to work. Files are loaded only when explicitly selected; the server does not
+search its working directory automatically.
+
+```sh
+cp config.example.json config.json
+cp .env.example .env
+
+./oba-mcp --config ./config.json --env-file ./.env
+# or
+OBA_CONFIG_FILE=./config.json OBA_ENV_FILE=./.env ./oba-mcp
+
+# Validate without starting the MCP server
+./oba-mcp --check-config --config ./config.json --env-file ./.env
+
+# Inspect the effective configuration; secrets are always redacted
+./oba-mcp --print-config --config ./config.json --env-file ./.env
+```
+
+Use `config.json` for stable non-secret settings and `.env` for local secrets.
+In production, prefer deployment environment variables or a secret manager for
+`OBA_API_KEY` and `OBA_HTTP_AUTH_TOKEN`. The real `config.json` and `.env` are
+ignored by Git; commit only the provided examples and schema.
+
+See [CONFIGURATION.md](CONFIGURATION.md) for complete stdio, HTTP, Make,
+Docker, and MCP-client startup instructions.
+
+Transport is separate from MCP protocol version: transport selects `stdio` or
+Streamable HTTP, while the MCP SDK negotiates protocol compatibility. The HTTP
+auth token protects the oba-mcp service boundary; it is not a complete OAuth or
+OIDC authorization implementation.
+
 | Env var | Default | Description |
 |---|---|---|
+| `OBA_CONFIG_FILE` | none | Explicit path to `config.json`; `--config` takes precedence |
+| `OBA_ENV_FILE` | none | Explicit path to a dotenv file; `--env-file` takes precedence |
 | `OBA_BASE_URL` | `http://localhost:4000` | OBA-compatible API URL |
 | `OBA_API_KEY` | required | OBA API key; inject it from a deployment secret |
-| `OBA_TRANSPORT` | `stdio` | `stdio` (MCP clients) or `http` (web/HTTP clients) |
-| `OBA_TOOL_PROFILE` | `all` | `all` exposes all 29 tools; `rider` exposes the 14 common passenger tools |
+| `OBA_TRANSPORT` | `stdio` | `stdio` or canonical `streamable-http`; legacy `http` is accepted as an alias |
+| `OBA_TOOL_PROFILE` | `all` | `all` exposes all 29 tools; `rider` exposes the 16 common passenger tools |
 | `OBA_PORT` | `8080` | Port for HTTP mode |
 | `OBA_HTTP_BIND_ADDR` | `127.0.0.1` | HTTP listener address; use a private network address for a gateway deployment |
 | `OBA_HTTP_AUTH_TOKEN` | required in HTTP mode | Secret shared only by the MCP server and its authentication gateway |
 | `OBA_ALLOWED_ORIGINS` | none | Comma-separated exact browser origins; all other browser origins receive `403` |
 | `OBA_LOG` | `/tmp/oba-mcp.log` | Log file path (rotated automatically) |
-| `OBA_LOG_JSON` | `0` | Set to `1` for raw JSON logs (default: human-readable) |
-| `OBA_CACHE` | `~/.cache/oba-mcp/cache.db` | SQLite persistent cache |
+| `OBA_LOG_FORMAT` | `text` | Canonical log format: `text` or `json` |
+| `OBA_LOG_JSON` | unset | Legacy `0`/`1` alias; conflicting format variables are rejected |
+| `OBA_CACHE` | `~/.cache/oba-mcp/cache.db` | SQLite persistent cache; empty means memory-only |
 
 ## Logs
 
@@ -65,7 +110,7 @@ Sample output:
 
 **JSON (for log aggregators):**
 ```sh
-OBA_LOG_JSON=1 ./oba-mcp
+OBA_LOG_FORMAT=json ./oba-mcp
 ```
 
 ## Docker
@@ -88,6 +133,20 @@ If maglev runs outside Docker (e.g. on the host at port 4000):
 # in docker-compose.yml
 environment:
   OBA_BASE_URL: http://host.docker.internal:4000
+```
+
+For a file-based container deployment, mount the non-secret JSON read-only and
+inject credentials separately:
+
+```yaml
+services:
+  oba-mcp:
+    command: ["--config", "/etc/oba-mcp/config.json"]
+    volumes:
+      - ./config.json:/etc/oba-mcp/config.json:ro
+    environment:
+      OBA_API_KEY: ${OBA_API_KEY:?OBA_API_KEY is required}
+      OBA_HTTP_AUTH_TOKEN: ${OBA_HTTP_AUTH_TOKEN:?OBA_HTTP_AUTH_TOKEN is required}
 ```
 
 ## Register with MCP Clients

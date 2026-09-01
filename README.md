@@ -53,7 +53,7 @@ with `docker compose --profile ui up -d` after configuring a secure HTTP gateway
 
 ## Requirements
 
-- **MCP server:** Go 1.23+
+- **MCP server:** Go 1.26.5+
 - **Web UI:** Node.js 20+
 - **Backend:** A running [maglev](https://github.com/OneBusAway/maglev) or OBA-compatible API
 

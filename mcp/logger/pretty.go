@@ -1,5 +1,5 @@
 // Package logger provides a human-readable writer for the structured JSON logs
-// emitted by client/http_client.go. Wrap any io.Writer with NewPretty; when OBA_LOG_JSON=1
+// emitted by client/http_client.go. Wrap any io.Writer with NewPretty; when OBA_LOG_FORMAT=json
 // is set, bypass it entirely and write raw JSON.
 package logger
 

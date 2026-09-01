@@ -5,8 +5,11 @@ OBA_API_KEY  ?= test
 OBA_PORT ?= 8080
 EVAL_SUITE ?= evals/scenarios-v1.json
 EVAL_TRANSCRIPT ?= evals/transcripts/live.json
+CONFIG ?=
+ENV_FILE ?=
+CONFIG_ARGS = $(if $(CONFIG),--config "$(CONFIG)") $(if $(ENV_FILE),--env-file "$(ENV_FILE)")
 
-.PHONY: build run watch test eval-test eval-run eval-live eval-score fmt lint clean mcp-add mcp-remove serve-http logs docker-build docker-up docker-down docker-logs
+.PHONY: build run run-config check-config print-config watch test eval-test eval-run eval-live eval-score fmt lint clean mcp-add mcp-remove serve-http serve-http-config logs docker-build docker-up docker-down docker-logs
 
 ## build: compile the binary to ./oba-mcp
 build:
@@ -15,6 +18,19 @@ build:
 ## run: build and run the MCP server
 run: build
 	OBA_BASE_URL=$(OBA_BASE_URL) OBA_API_KEY=$(OBA_API_KEY) ./$(BINARY)
+
+## run-config: run using CONFIG and/or ENV_FILE
+run-config: build
+	@test -n "$(CONFIG)$(ENV_FILE)" || (echo "CONFIG or ENV_FILE is required" && exit 2)
+	./$(BINARY) $(CONFIG_ARGS)
+
+## check-config: validate CONFIG, ENV_FILE, and process environment without starting
+check-config: build
+	./$(BINARY) --check-config $(CONFIG_ARGS)
+
+## print-config: print the effective configuration with secrets redacted
+print-config: build
+	./$(BINARY) --print-config $(CONFIG_ARGS)
 
 ## watch: live-reload the server on file changes (via Air)
 watch:
@@ -71,7 +87,12 @@ mcp-add-log: build
 
 ## serve-http: run HTTP mode on loopback (requires OBA_HTTP_AUTH_TOKEN)
 serve-http: build
-	OBA_BASE_URL=$(OBA_BASE_URL) OBA_API_KEY=$(OBA_API_KEY) OBA_TRANSPORT=http OBA_PORT=$(OBA_PORT) ./$(BINARY)
+	OBA_BASE_URL=$(OBA_BASE_URL) OBA_API_KEY=$(OBA_API_KEY) OBA_TRANSPORT=streamable-http OBA_PORT=$(OBA_PORT) ./$(BINARY)
+
+## serve-http-config: run HTTP mode using CONFIG and/or ENV_FILE
+serve-http-config: build
+	@test -n "$(CONFIG)$(ENV_FILE)" || (echo "CONFIG or ENV_FILE is required" && exit 2)
+	OBA_TRANSPORT=streamable-http ./$(BINARY) $(CONFIG_ARGS)
 
 ## dev-ui: start the web UI dev server (run serve-http in another terminal first)
 dev-ui:

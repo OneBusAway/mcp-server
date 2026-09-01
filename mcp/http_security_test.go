@@ -3,36 +3,8 @@ package main
 import (
 	"net/http"
 	"net/http/httptest"
-	"reflect"
 	"testing"
 )
-
-func TestParseAllowedOrigins(t *testing.T) {
-	tests := []struct {
-		name, raw string
-		want      []string
-		ok        bool
-	}{
-		{name: "empty disables browser access", raw: "", ok: true},
-		{name: "deduplicates valid origins", raw: "https://app.example, http://localhost:3000, https://app.example", want: []string{"https://app.example", "http://localhost:3000"}, ok: true},
-		{name: "rejects wildcard", raw: "*"},
-		{name: "rejects path", raw: "https://app.example/mcp"},
-		{name: "rejects query", raw: "https://app.example?x=1"},
-		{name: "rejects unsupported scheme", raw: "ftp://app.example"},
-		{name: "rejects empty member", raw: "https://app.example,"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := parseAllowedOrigins(tt.raw)
-			if (err == nil) != tt.ok {
-				t.Fatalf("error = %v, want success %t", err, tt.ok)
-			}
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Fatalf("got %#v, want %#v", got, tt.want)
-			}
-		})
-	}
-}
 
 func TestProtectedHTTPHandler(t *testing.T) {
 	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })

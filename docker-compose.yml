@@ -10,14 +10,17 @@ services:
     environment:
       OBA_BASE_URL:  ${OBA_BASE_URL:-http://maglev:4000}
       OBA_API_KEY:   ${OBA_API_KEY:?OBA_API_KEY is required}
-      OBA_TRANSPORT: http
+      OBA_TRANSPORT: streamable-http
       OBA_PORT:      "8080"
       OBA_HTTP_BIND_ADDR: 0.0.0.0
       OBA_HTTP_AUTH_TOKEN: ${OBA_HTTP_AUTH_TOKEN:?OBA_HTTP_AUTH_TOKEN is required}
       OBA_ALLOWED_ORIGINS: ${OBA_ALLOWED_ORIGINS:-http://localhost:3000}
       OBA_LOG:       /var/log/oba-mcp/oba-mcp.log
       OBA_CACHE:     /var/cache/oba-mcp/cache.db
-      OBA_LOG_JSON:  ${OBA_LOG_JSON:-0}
+      # Either variable is forwarded only when set by the operator. Prefer the
+      # canonical format; the legacy alias remains available during migration.
+      OBA_LOG_FORMAT:
+      OBA_LOG_JSON:
     volumes:
       - oba-cache:/var/cache/oba-mcp
       - oba-logs:/var/log/oba-mcp

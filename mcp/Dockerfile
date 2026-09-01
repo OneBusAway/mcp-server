@@ -1,8 +1,7 @@
 # ── Build stage ──────────────────────────────────────────────────────────────
-FROM golang:1.23-alpine AS builder
+FROM golang:1.26-alpine AS builder
 
-# GOTOOLCHAIN=local: use the compiler in this image even if go.mod requests a
-# newer version. Update the FROM line when you upgrade your local Go toolchain.
+# Keep container builds pinned to the toolchain supplied by the builder image.
 ENV GOTOOLCHAIN=local
 
 WORKDIR /app

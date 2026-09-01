@@ -66,19 +66,34 @@ GOCACHE=/tmp/oba-mcp-go-cache go build ./...
 
 ## Configuration
 
+Runtime configuration resolves in this order:
+
+```text
+compiled defaults < config.json < .env < process environment
+```
+
+Files are optional and explicitly selected with `--config` and `--env-file`,
+or `OBA_CONFIG_FILE` and `OBA_ENV_FILE`. Use `config.json` for stable
+non-secret settings, `.env` for local development, and deployment environment
+or secret-manager injection for production credentials. `config.schema.json`,
+`config.example.json`, and `.env.example` document the file contracts.
+
 | Variable | Default | Purpose |
 |---|---|---|
+| `OBA_CONFIG_FILE` | none | explicit JSON configuration path |
+| `OBA_ENV_FILE` | none | explicit dotenv configuration path |
 | `OBA_BASE_URL` | `http://localhost:4000` | OBA-compatible API URL |
 | `OBA_API_KEY` | required | API key; inject from a secret manager |
-| `OBA_TRANSPORT` | `stdio` | `stdio` or `http` |
+| `OBA_TRANSPORT` | `stdio` | `stdio` or `streamable-http`; `http` is a compatibility alias |
 | `OBA_TOOL_PROFILE` | `all` | `all` exposes all 29 tools; `rider` exposes 16 passenger workflows |
 | `OBA_PORT` | `8080` | HTTP listener port |
 | `OBA_HTTP_BIND_ADDR` | `127.0.0.1` | HTTP listener address |
 | `OBA_HTTP_AUTH_TOKEN` | required in HTTP mode | private gateway-to-MCP bearer token |
 | `OBA_ALLOWED_ORIGINS` | none | exact allowed browser origins |
 | `OBA_LOG` | `/tmp/oba-mcp.log` | rotated log destination |
-| `OBA_LOG_JSON` | `0` | set to `1` for JSON logs |
-| `OBA_CACHE` | platform cache directory | SQLite static-data cache |
+| `OBA_LOG_FORMAT` | `text` | canonical `text` or `json` log format |
+| `OBA_LOG_JSON` | unset | legacy `0`/`1` log-format alias |
+| `OBA_CACHE` | platform cache directory | SQLite static-data cache; empty uses memory only |
 
 HTTP mode is for a private service behind an authenticated TLS gateway, not a
 public listener. Keep the API key and HTTP auth token out of source, logs, MCP
@@ -177,7 +192,7 @@ status, and current time are not cached. Concurrent identical requests are still
 coalesced so they share one in-flight upstream call.
 
 Logs rotate at 10 MB, retain three compressed files for seven days, and are
-human-readable by default. Set `OBA_LOG_JSON=1` for log aggregation.
+human-readable by default. Set `OBA_LOG_FORMAT=json` for log aggregation.
 
 ## Tool design and errors
 

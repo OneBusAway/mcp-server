@@ -9,7 +9,7 @@ MCP plan.
 | Mode | Intended use | Transport and exposure | Required configuration |
 | --- | --- | --- | --- |
 | Trusted local | A single developer's MCP client on the same machine. This is the default. | Stdio only; no listening network port. | `OBA_TRANSPORT=stdio` (or unset). The client owns process access and backend credentials. |
-| Private HTTP | A trusted service-to-service integration in a private network. | HTTP is reachable only through private networking or an authenticated internal gateway. | Explicit `OBA_TRANSPORT=http`; gateway authentication, TLS, origin policy, and network restrictions. |
+| Private Streamable HTTP | A trusted service-to-service integration in a private network. | HTTP is reachable only through private networking or an authenticated internal gateway. | Explicit `OBA_TRANSPORT=streamable-http`; gateway authentication, TLS, origin policy, and network restrictions. |
 | Public HTTP | A shared, internet-facing MCP service. | Only an authentication and TLS gateway is public. The MCP server and Maglev remain private. | All Phase 1–5 release-gate requirements, caller authorization, rate limits, observability, and an approved operational owner. |
 
 Stdio is the least-privileged default. HTTP must never be enabled merely to make
