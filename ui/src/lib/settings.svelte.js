@@ -44,6 +44,18 @@ export const PROVIDERS = [
 		],
 	},
 	{
+		id: 'google-ai-studio',
+		label: 'Google AI Studio',
+		keyPlaceholder: 'AIza…',
+		keyHelp: 'Free API at aistudio.google.com — create account, no credit card required.',
+		baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+		models: [
+			{ id: 'gemini-2.0-flash',   label: 'Gemini 2.0 Flash — Fast & free' },
+			{ id: 'gemini-2.5-flash',   label: 'Gemini 2.5 Flash — Balanced' },
+			{ id: 'gemini-2.5-pro',     label: 'Gemini 2.5 Pro — Most capable' },
+		],
+	},
+	{
 		id: 'openai',
 		label: 'OpenAI',
 		keyPlaceholder: 'sk-…',
@@ -78,6 +90,13 @@ export const PROVIDERS = [
 	},
 ];
 
+function loadJson(key, fallback) {
+	try { return JSON.parse(localStorage.getItem(key) ?? 'null') ?? fallback; } catch { return fallback; }
+}
+function saveJson(key, val) {
+	try { localStorage.setItem(key, JSON.stringify(val)); } catch {}
+}
+
 function createSettings() {
 	let provider    = $state(load('provider', 'anthropic'));
 	let apiKey      = $state(load('api_key', ''));
@@ -106,6 +125,13 @@ function createSettings() {
 
 		get providerConfig() {
 			return PROVIDERS.find((p) => p.id === provider) ?? PROVIDERS[0];
+		},
+
+		getCachedModels(providerId) {
+			return loadJson(`fetched_models_${providerId}`, null);
+		},
+		setCachedModels(providerId, models) {
+			saveJson(`fetched_models_${providerId}`, models);
 		},
 	};
 }

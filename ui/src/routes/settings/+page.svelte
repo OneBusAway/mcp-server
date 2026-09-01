@@ -6,14 +6,28 @@
 	let saved        = $state(false);
 	let testResult   = $state('');
 	let testing      = $state(false);
-	let liveModels   = $state(null); // null = not fetched yet
 	let fetchingModels = $state(false);
+
+	let provider   = $state(settings.provider);
+	let apiKey     = $state(settings.apiKey);
+	let model      = $state(settings.model);
+	let mapStyle   = $state(settings.mapStyle);
+	let toolMode   = $state(settings.toolMode);
+
+	let liveModels = $state(settings.getCachedModels(provider));
+
+	const MAP_STYLES = [
+		{ id: 'https://tiles.openfreemap.org/styles/bright',   label: 'OpenFreeMap Bright — clean, minimal (recommended)' },
+		{ id: 'https://tiles.openfreemap.org/styles/liberty',  label: 'OpenFreeMap Liberty — detailed' },
+		{ id: 'https://demotiles.maplibre.org/style.json',     label: 'MapLibre Demo — ultra-minimal' },
+	];
+
+	const currentProvider = $derived(PROVIDERS.find((p) => p.id === provider) ?? PROVIDERS[0]);
 
 	async function fetchLiveModels() {
 		const prov = PROVIDERS.find((p) => p.id === provider);
 		if (!prov?.baseUrl) return;
 		fetchingModels = true;
-		liveModels = null;
 		try {
 			const res = await fetch(`${prov.baseUrl}/models`, {
 				headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {}
@@ -26,7 +40,12 @@
 					(m.id.endsWith(':free') || (m.pricing?.prompt === '0') ? ' (free)' : '')
 			}));
 			// For OpenRouter keep only :free models
-			liveModels = provider === 'openrouter' ? all.filter((m) => m.id.endsWith(':free')) : all;
+			const fetched = provider === 'openrouter' ? all.filter((m) => m.id.endsWith(':free')) : all;
+			liveModels = fetched;
+			settings.setCachedModels(provider, fetched);
+			if (fetched.length && !fetched.find((m) => m.id === model)) {
+				model = fetched[0].id;
+			}
 		} catch (e) {
 			liveModels = [];
 		} finally {
@@ -34,27 +53,13 @@
 		}
 	}
 
-	// Local form state — committed on Save
-	let provider   = $state(settings.provider);
-	let apiKey     = $state(settings.apiKey);
-	let model      = $state(settings.model);
-	let mapStyle   = $state(settings.mapStyle);
-	let toolMode   = $state(settings.toolMode);
-
-	const MAP_STYLES = [
-		{ id: 'https://tiles.openfreemap.org/styles/bright',   label: 'OpenFreeMap Bright — clean, minimal (recommended)' },
-		{ id: 'https://tiles.openfreemap.org/styles/liberty',  label: 'OpenFreeMap Liberty — detailed' },
-		{ id: 'https://demotiles.maplibre.org/style.json',     label: 'MapLibre Demo — ultra-minimal' },
-	];
-
-	const currentProvider = $derived(PROVIDERS.find((p) => p.id === provider) ?? PROVIDERS[0]);
-
-	// Reset model when provider changes if current model isn't in the new list
 	function onProviderChange(p) {
 		provider = p;
+		liveModels = settings.getCachedModels(p);
 		const prov = PROVIDERS.find((x) => x.id === p);
-		if (prov && !prov.models.find((m) => m.id === model)) {
-			model = prov.models[0].id;
+		const modelList = liveModels ?? prov?.models ?? [];
+		if (!modelList.find((m) => m.id === model)) {
+			model = (modelList[0] ?? prov?.models[0])?.id ?? model;
 		}
 	}
 
@@ -181,7 +186,7 @@
 								title="Fetch live model list from provider"
 							>
 								<Icon name="refresh-cw" cls="h-3 w-3 {fetchingModels ? 'animate-spin' : ''}" />
-								{liveModels ? `${liveModels.length} live` : 'Refresh models'}
+								{fetchingModels ? 'Fetching…' : liveModels ? `${liveModels.length} models ↺` : 'Fetch models'}
 							</button>
 						{/if}
 					</div>
@@ -295,7 +300,7 @@
 			</li>
 			<li class="flex gap-3">
 				<span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-oba-500 text-xs font-bold text-white">2</span>
-				Start oba-mcp: <code class="rounded bg-zinc-200 px-1.5 py-0.5 text-xs dark:bg-zinc-800">cd oba-mcp && make serve-http</code>
+				Start oba-mcp: <code class="rounded bg-zinc-200 px-1.5 py-0.5 text-xs dark:bg-zinc-800">cd oba-mcp && OBA_HTTP_AUTH_TOKEN=local-dev make serve-http</code>
 			</li>
 			<li class="flex gap-3">
 				<span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-oba-500 text-xs font-bold text-white">3</span>
