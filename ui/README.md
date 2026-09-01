@@ -20,12 +20,27 @@ SvelteKit web chat interface for the [OneBusAway MCP server](../mcp/). Ask quest
 
 ```sh
 # 1. Start the MCP server (from ../mcp/)
-cd ../mcp && OBA_HTTP_AUTH_TOKEN=local-dev make serve-http
+# `OBA_API_KEY=test` is suitable for the default local Maglev setup.
+cd ../mcp && OBA_API_KEY=test OBA_HTTP_AUTH_TOKEN=local-dev make serve-http
 
 # 2. Install dependencies and start the dev server
 cd ../ui && npm install
-MCP_AUTH_TOKEN=local-dev make dev # http://localhost:5173
+MCP_URL=http://localhost:8080 MCP_AUTH_TOKEN=local-dev make dev # http://localhost:5173
 ```
+
+To use the MCP's new dotenv or JSON configuration, start it instead with:
+
+```sh
+cd ../mcp
+cp .env.example .env
+# Set OBA_HTTP_AUTH_TOKEN in .env, then:
+make serve-http-config ENV_FILE=.env
+```
+
+The UI Make variables `MCP_URL` and `MCP_AUTH_TOKEN` are passed to its
+server-only `OBA_MCP_URL` and `OBA_MCP_AUTH_TOKEN` environment variables.
+Set the same token in both processes. `MCP_URL` is the MCP server base URL;
+the UI adds `/mcp` itself.
 
 The UI server holds MCP connection details. The browser never receives the
 MCP bearer token or the upstream OBA API key.
@@ -41,7 +56,13 @@ MCP bearer token or the upstream OBA API key.
 Provider settings are stored in `localStorage`. Configure the UI server with
 `OBA_MCP_URL` (the private MCP base URL) and `OBA_MCP_AUTH_TOKEN` (the private
 MCP bearer token). These values must be set as deployment secrets, not browser
-settings.
+settings. When bypassing the Makefile, start Vite with these names directly:
+
+```sh
+OBA_MCP_URL=http://localhost:8080 \
+OBA_MCP_AUTH_TOKEN=local-dev \
+npm run dev
+```
 
 ## Docker
 
@@ -87,7 +108,7 @@ src/
 ## Makefile
 
 ```sh
-MCP_AUTH_TOKEN=local-dev make dev # start dev server; MCP_URL overrides the target
+MCP_URL=http://localhost:8080 MCP_AUTH_TOKEN=local-dev make dev
 make build          # production build
 make preview        # preview production build
 make docker-build   # build Docker image
