@@ -23,7 +23,7 @@ func (h *Handler) registerStopTools(s *server.MCPServer) {
 
 	s.AddTool(
 		mcp.NewTool("get_stop",
-			mcp.WithDescription("Look up a stop by ID and return its name, location, direction, and routes. Use this when you already have a stop_id — faster than searching. IDs look like 'unitrans_22274'."),
+			mcp.WithDescription("Look up a stop by ID and return its name, location, direction, and route list. Use this when you already have a stop_id — faster than searching. IDs look like 'unitrans_22274'. Use get_arrivals_for_stop to see upcoming departures at this stop."),
 			mcp.WithString("stop_id", mcp.Required(), mcp.Description("Stop ID (e.g. 'unitrans_22274')")),
 			mcp.WithOutputSchema[SuccessEnvelope[StopResponse]](),
 		),
@@ -32,8 +32,8 @@ func (h *Handler) registerStopTools(s *server.MCPServer) {
 
 	s.AddTool(
 		newPaginatedTool("search_stops",
-			mcp.WithDescription("Search stops by name or street keyword. Use when you don't have a stop_id yet. Returns matching stops with their IDs."),
-			mcp.WithString("query", mcp.Required(), mcp.Description("Stop name, street, or code to search for")),
+			mcp.WithDescription("Search stops by name, street, stop code, or landmark text. This is the primary way to translate a user-facing stop code (the short number printed on the physical sign, e.g. '1013') into the underlying agency-specific stop_id. Do not guess or construct a stop_id from a code — search for it. Do not invent GPS coordinates for a place name: pass the text as the query instead. Returns matching stops with their IDs, names, and coordinates."),
+			mcp.WithString("query", mcp.Required(), mcp.Description("Stop name, street, stop code, or landmark text to search for")),
 			mcp.WithNumber("max_count", mcp.Description("Max results to return: 1-20 (default: 5)")),
 			mcp.WithOutputSchema[SuccessEnvelope[Page[StopResponse]]](),
 		),
@@ -42,7 +42,7 @@ func (h *Handler) registerStopTools(s *server.MCPServer) {
 
 	s.AddTool(
 		newPaginatedTool("find_stops_near_location",
-			mcp.WithDescription("Find transit stops near GPS coordinates. Returns nearby stop IDs, names, directions, and routes."),
+			mcp.WithDescription("Find transit stops near GPS coordinates. Requires actual latitude/longitude values provided by the user or derived from a prior lookup — do not invent coordinates for a place name. Use search_stops instead when you only have a landmark or text description."),
 			mcp.WithNumber("lat", mcp.Required(), mcp.Description("Latitude")),
 			mcp.WithNumber("lon", mcp.Required(), mcp.Description("Longitude")),
 			mcp.WithNumber("radius", mcp.Description("Search radius in meters (default: 500, max: 5000)")),
@@ -65,7 +65,7 @@ func (h *Handler) registerStopTools(s *server.MCPServer) {
 
 	s.AddTool(
 		mcp.NewTool("get_stop_schedule",
-			mcp.WithDescription("Get the full day schedule for a stop grouped by route and direction, with trip_id per departure. Note: some trips may be missing if the backend omits a direction grouping — use get_arrivals_for_stop with a time= window for guaranteed completeness at a specific hour."),
+			mcp.WithDescription("Get the full static day schedule for a stop grouped by route and direction, with trip_id and departure time per trip. Use for planning ahead (e.g. 'what buses run tomorrow?'). For real-time data or a rolling time window, use get_arrivals_for_stop instead — some trips may be missing here if the backend omits a direction grouping."),
 			mcp.WithString("stop_id", mcp.Required(), mcp.Description("Stop ID (e.g. 'unitrans_22274')")),
 			mcp.WithString("date", mcp.Description("Agency-local service date in strict YYYY-MM-DD format (defaults to today)")),
 			mcp.WithOutputSchema[SuccessEnvelope[StopScheduleResponse]](),

@@ -13,7 +13,7 @@ import (
 func (h *Handler) registerOverviewTools(s *server.MCPServer) {
 	s.AddTool(
 		mcp.NewTool("get_stop_overview",
-			mcp.WithDescription("Get a quick summary of a stop: name, location, routes serving it, and the next 5 arrivals in the next 30 minutes. Use this for 'what's at stop X?' or 'what's coming soon?' — replaces the common pattern of get_stop + get_arrivals_for_stop."),
+			mcp.WithDescription("Get a quick summary of a stop: name, location, routes serving it, and the next 5 arrivals with headsigns. Prefer this over calling get_stop then get_arrivals_for_stop separately — it answers both in one call. Use for 'what buses stop here?', 'what's coming soon?', or 'what direction is the next bus?'"),
 			mcp.WithString("stop_id", mcp.Required(), mcp.Description("Stop ID (e.g. 'unitrans_22274')")),
 			mcp.WithOutputSchema[SuccessEnvelope[StopOverviewResponse]](),
 		),

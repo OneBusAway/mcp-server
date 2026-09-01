@@ -12,7 +12,7 @@ import (
 func (h *Handler) registerAgencyTools(s *server.MCPServer) {
 	s.AddTool(
 		newPaginatedTool("get_agencies",
-			mcp.WithDescription("List all transit agencies in this system with coverage area. Call this first when you don't know the agency_id."),
+			mcp.WithDescription("List all transit agencies in this system. Returns agency name, URL, and geographic coverage area. Call this first when you don't know the agency_id — agency IDs are required by most other endpoints."),
 			mcp.WithOutputSchema[SuccessEnvelope[Page[AgencySummary]]](),
 		),
 		h.getAgencies,

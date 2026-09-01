@@ -11,7 +11,7 @@ import (
 func (h *Handler) registerSystemTools(s *server.MCPServer) {
 	s.AddTool(
 		mcp.NewTool("get_current_time",
-			mcp.WithDescription("Get the current server time from the OBA API. Useful for knowing the reference time when interpreting schedules and arrivals."),
+			mcp.WithDescription("Get the current server time from the OBA API. Use only for time-reference questions — not for checking whether the transit system is operational (use get_metadata for that)."),
 			mcp.WithOutputSchema[SuccessEnvelope[CurrentTimeResponse]](),
 		),
 		h.getCurrentTime,
@@ -19,7 +19,7 @@ func (h *Handler) registerSystemTools(s *server.MCPServer) {
 
 	s.AddTool(
 		mcp.NewTool("get_metadata",
-			mcp.WithDescription("Get server metadata: when static GTFS data was last updated and the last refresh time for each real-time feed. Use to check data freshness."),
+			mcp.WithDescription("Check whether the transit system is operational: when static GTFS data was last updated and when each real-time feed last refreshed. Use to verify service health or diagnose data staleness — not just for curiosity about timing."),
 			mcp.WithOutputSchema[SuccessEnvelope[MetadataResponse]](),
 		),
 		h.getMetadata,

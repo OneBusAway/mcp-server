@@ -14,7 +14,7 @@ import (
 func (h *Handler) registerArrivalTools(s *server.MCPServer) {
 	s.AddTool(
 		mcp.NewTool("get_arrival_and_departure_for_stop",
-			mcp.WithDescription("Get a single specific arrival/departure at a stop for a known trip. Use this when you have a specific trip_id and service_date (from get_arrivals_for_stop results) and need precise real-time data for that one trip."),
+			mcp.WithDescription("Get precise real-time data for one specific trip at a stop. Only use this as a follow-up when you already have both a trip_id AND a service_date from a prior get_arrivals_for_stop call — do not use it as the first call to find arrivals at a stop."),
 			mcp.WithString("stop_id", mcp.Required(), mcp.Description("Stop ID (e.g. 'unitrans_22274')")),
 			mcp.WithString("trip_id", mcp.Required(), mcp.Description("Trip ID (e.g. 'unitrans_12345')")),
 			mcp.WithNumber("service_date", mcp.Required(), mcp.Description("Service date as a Unix epoch millisecond timestamp through 2100")),
@@ -26,7 +26,7 @@ func (h *Handler) registerArrivalTools(s *server.MCPServer) {
 
 	s.AddTool(
 		newPaginatedTool("get_arrivals_for_stop",
-			mcp.WithDescription("Get arrivals and departures at a stop. Returns up to 10 arrivals in the next 30 minutes by default. Pass 'time' (epoch ms) to query at a specific moment (e.g. 7 AM). Pass 'minutes_after' to widen or narrow the window. Real-time predictions only available near current time."),
+			mcp.WithDescription("Get arrivals and departures at a stop. Use this to discover which routes and trips are actively serving a stop. Each result includes route name, trip headsign, scheduled and predicted times, distance from stop, and stops-away count. Returns up to 10 arrivals in the next 30 minutes by default. Pass 'minutes_after' to widen the window. Pass 'time' (epoch ms) to query at a specific moment. Skipped trips are excluded."),
 			mcp.WithString("stop_id", mcp.Required(), mcp.Description("Stop ID (e.g. 'unitrans_22274')")),
 			mcp.WithNumber("minutes_before", mcp.Description("Minutes in the past to include: 0-120 (default: 0)")),
 			mcp.WithNumber("minutes_after", mcp.Description("Minutes ahead to include: 0-120 (default: 30)")),

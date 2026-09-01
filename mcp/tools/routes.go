@@ -51,7 +51,7 @@ func (h *Handler) registerRouteTools(s *server.MCPServer) {
 
 	s.AddTool(
 		newPaginatedTool("get_routes_for_agency",
-			mcp.WithDescription("List routes operated by an agency. Returns up to 30 by default."),
+			mcp.WithDescription("List all routes operated by an agency. Use this when you have an agency_id from get_agencies — prefer this over get_routes_for_location when the agency is already known. Returns up to 30 by default."),
 			mcp.WithString("agency_id", mcp.Required(), mcp.Description("Agency ID (e.g. 'unitrans')")),
 			mcp.WithOutputSchema[SuccessEnvelope[Page[RouteResponse]]](),
 		),
@@ -60,7 +60,7 @@ func (h *Handler) registerRouteTools(s *server.MCPServer) {
 
 	s.AddTool(
 		newPaginatedTool("get_routes_for_location",
-			mcp.WithDescription("Find routes that serve an area near GPS coordinates."),
+			mcp.WithDescription("Find routes that serve an area near GPS coordinates. Can return routes from multiple agencies serving the area — useful in multi-agency regions. Use get_routes_for_agency instead if you already have an agency_id, as it returns a complete unfiltered list."),
 			mcp.WithNumber("lat", mcp.Required(), mcp.Description("Latitude")),
 			mcp.WithNumber("lon", mcp.Required(), mcp.Description("Longitude")),
 			mcp.WithNumber("radius", mcp.Description("Search radius in meters: 1-5000 (default: 500)")),

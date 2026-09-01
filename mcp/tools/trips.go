@@ -22,7 +22,7 @@ func (h *Handler) registerTripTools(s *server.MCPServer) {
 
 	s.AddTool(
 		mcp.NewTool("get_trip",
-			mcp.WithDescription("Get basic info for a trip by ID: route, headsign, direction, service dates."),
+			mcp.WithDescription("Get static info for a trip by ID: route, headsign, direction, shape, and service dates. Does NOT include real-time vehicle position or schedule deviation — use get_trip_details for live status."),
 			mcp.WithString("trip_id", mcp.Required(), mcp.Description("Trip ID (e.g. 'unitrans_12345')")),
 			mcp.WithOutputSchema[SuccessEnvelope[TripResponse]](),
 		),
@@ -31,7 +31,7 @@ func (h *Handler) registerTripTools(s *server.MCPServer) {
 
 	s.AddTool(
 		mcp.NewTool("get_trip_details",
-			mcp.WithDescription("Get full real-time status for a trip: vehicle position, schedule deviation, next stops, and phase. Use when the user asks where a specific bus is right now."),
+			mcp.WithDescription("Get full real-time status for a trip: vehicle position, schedule deviation, next stops with predicted times, and phase. The richest single-trip endpoint — use when the user asks where a specific bus is right now or wants live tracking for a trip_id obtained from get_arrivals_for_stop."),
 			mcp.WithString("trip_id", mcp.Required(), mcp.Description("Trip ID (e.g. 'unitrans_12345')")),
 			mcp.WithNumber("time", mcp.Description("Query trip at a Unix epoch millisecond timestamp through 2100")),
 			mcp.WithBoolean("include_schedule", mcp.Description("Include full stop schedule in response (default true)")),
@@ -43,7 +43,7 @@ func (h *Handler) registerTripTools(s *server.MCPServer) {
 
 	s.AddTool(
 		mcp.NewTool("get_trip_for_vehicle",
-			mcp.WithDescription("Get the current trip being served by a specific vehicle. Use when the user asks about a specific bus by vehicle number."),
+			mcp.WithDescription("Get the current trip being served by a specific vehicle. Use when the user asks about a specific bus by vehicle number. Returns nothing if the vehicle has no active trip or is not currently tracked by the real-time feed."),
 			mcp.WithString("vehicle_id", mcp.Required(), mcp.Description("Vehicle ID (e.g. 'unitrans_1')")),
 			mcp.WithNumber("time", mcp.Description("Query trip at a Unix epoch millisecond timestamp through 2100")),
 			mcp.WithOutputSchema[SuccessEnvelope[VehicleResponse]](),
@@ -53,7 +53,7 @@ func (h *Handler) registerTripTools(s *server.MCPServer) {
 
 	s.AddTool(
 		newPaginatedTool("get_vehicles_for_agency",
-			mcp.WithDescription("Get real-time positions and status of every active vehicle for an agency. Use ONLY when the user explicitly asks for the whole agency fleet or all buses running; for buses approaching a specific stop, use get_arrivals_for_stop instead."),
+			mcp.WithDescription("Get real-time positions and status of every active vehicle for an agency. Use ONLY when the user explicitly asks for the whole fleet or all buses running. Returns an empty list if no real-time feed is configured for the agency. For buses approaching a specific stop, use get_arrivals_for_stop instead."),
 			mcp.WithString("agency_id", mcp.Required(), mcp.Description("Agency ID (e.g. 'unitrans')")),
 			mcp.WithOutputSchema[SuccessEnvelope[Page[VehicleResponse]]](),
 		),
