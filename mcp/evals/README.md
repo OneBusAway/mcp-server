@@ -18,9 +18,13 @@ from changing the expected result.
 
 `all-tools-v1.json` is the versioned, model-agnostic baseline for the entire
 MCP catalog. Every registered tool has a success case and a controlled failure
-case. `scenarios-v1.json` adds ambiguous names, empty arrivals, stale data,
-rate limiting, malformed upstream data, malicious values, and a composite
-rider workflow.
+case. `scenarios-v1.json` is the 30-case scenario suite covering real rider
+workflows (late bus, early bus, planning ahead, discovery), tool-selection
+edge cases (stop code vs stop_id, coordinate vs text search, composite vs
+focused calls), realtime-vs-scheduled distinction, adversarial inputs
+(prompt injection in stop names, malicious IDs, instruction-like search
+text), upstream failures (rate limiting, malformed bodies), and truncation
+disclosure.
 
 CI compares the suites with the actual tool registration. For direct IDs,
 `prompt_argument_keys` requires expected values to appear as complete IDs in
@@ -54,6 +58,10 @@ model to choose tools.
 - `scoring_test.go`: scorer and transcript contract tests.
 - `cmd/evalrun`: command used by `make eval-run` and `make eval-live`.
 - `cmd/evalscore`: command used by `make eval-score`.
+- `../scripts/eval.sh`: recommended runner. Wraps the CLI, auto-names
+  transcripts, and supports both baseline and full-system-prompt modes.
+- `../scripts/dump-prompt/`: prints the current `transit_assistant` system
+  prompt to stdout for use with the `-system-prompt` flag.
 
 ## Model/client scoring
 
@@ -114,14 +122,14 @@ Score it from `mcp/`:
 make eval-score TRANSCRIPT=/path/to/transcript.json
 ```
 
-Run and score a local Ollama model:
+Run and score a local Ollama model with the recommended script:
 
 ```sh
 EVAL_API_BASE_URL=http://127.0.0.1:11434/v1 \
 EVAL_MODEL=your-tool-capable-model \
 EVAL_PROVIDER=ollama \
 EVAL_PROFILE_ID=local-your-model \
-make eval-live
+./scripts/eval.sh
 ```
 
 Run and score an OpenAI-compatible hosted model:
@@ -132,18 +140,39 @@ EVAL_API_KEY=your-key \
 EVAL_MODEL=your-model \
 EVAL_PROVIDER=openai \
 EVAL_PROFILE_ID=frontier-your-model \
-make eval-live
+./scripts/eval.sh
 ```
 
-Use `EVAL_SUITE=evals/all-tools-v1.json` to score the catalog baseline. The
-`EVAL_TRANSCRIPT=evals/transcripts/name.json` setting keeps multiple runs. The
-MCP tool profile defaults to `all`; set `EVAL_TOOL_PROFILE=rider` only when the
-profile under evaluation intentionally exposes that smaller catalog. An
-optional client-specific prompt can be supplied directly with
-`go run ./cmd/evalrun -system-prompt path ...`. The scorer checks exact ordered
-tool selection, semantic JSON arguments, public tool-result error codes, call
-budgets, suite/case identity, runner failures, and optional required/forbidden
-response terms.
+Use `--suite evals/all-tools-v1.json` to score the catalog baseline, or
+`--out path.json` to override the auto-generated transcript path. The MCP
+tool profile defaults to `all`; set `EVAL_TOOL_PROFILE=rider` only when the
+profile under evaluation intentionally exposes that smaller catalog.
+
+`make eval-live` is the underlying target and still works, but the script
+avoids the manual `EVAL_TRANSCRIPT=...` bookkeeping and enables the
+`--full-prompt` mode below.
+
+### Baseline vs full-system-prompt mode
+
+`./scripts/eval.sh` runs with a minimal behavioral guardrail as the system
+prompt. This tests raw tool-description quality — whether the model picks
+the right tool from schemas alone.
+
+`./scripts/eval.sh --full-prompt` injects the comprehensive
+`transit_assistant` system prompt from `tools/prompts.go` (ID format rules,
+cross-tool workflows, time-computation steps, common mistakes). This
+measures the production performance ceiling because real MCP clients load
+the same prompt.
+
+Both scores are useful: the gap between them is the measured value of the
+system prompt. Transcripts are named
+`evals/transcripts/<profile>[-full-prompt]-<suite>.json` so runs never
+overwrite each other.
+
+The scorer checks exact ordered tool selection, semantic JSON arguments
+(subset match — extra optional arguments are allowed), public tool-result
+error codes, call budgets, suite/case identity, runner failures, and
+optional required/forbidden response terms.
 Invalid-argument cases may explicitly accept a zero-call refusal as safe model
 behavior; the deterministic handler runner still executes the declared call
 and verifies server-side validation and its public error code.
