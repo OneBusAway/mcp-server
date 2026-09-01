@@ -223,9 +223,9 @@
 							<button
 								type="button"
 								onclick={() => submit(s.text)}
-								class="group flex min-h-14 items-center gap-3 rounded-xl border border-zinc-200 bg-white px-3.5 py-3 text-left text-sm text-zinc-700 transition hover:border-oba-300 hover:bg-oba-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:border-oba-800 dark:hover:bg-oba-500/10 dark:hover:text-oba-300"
+								class="group flex min-h-14 items-center gap-3 rounded-xl border border-zinc-200 bg-white px-3.5 py-3 text-left text-sm text-zinc-700 transition hover:border-oba-300 hover:bg-oba-50 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 dark:hover:border-zinc-700 dark:hover:bg-zinc-900 dark:hover:text-zinc-100"
 							>
-								<span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-oba-50 text-oba-600 dark:bg-oba-500/10 dark:text-oba-400">
+								<span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-oba-50 text-oba-600 dark:bg-zinc-900 dark:text-oba-400">
 									<Icon name={s.icon} cls="h-4 w-4" />
 								</span>
 								<span class="flex-1 leading-5">{s.text}</span>
