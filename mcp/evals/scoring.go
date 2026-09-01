@@ -204,7 +204,7 @@ func scoreCalls(testCase Case, observed []ObservedCall) []string {
 		if got.Name != want.Name {
 			failures = append(failures, fmt.Sprintf("call %d tool = %q, want %q", index+1, got.Name, want.Name))
 		}
-		if !equalJSON(got.Arguments, want.Arguments) {
+		if !jsonContainsExpected(got.Arguments, want.Arguments) {
 			failures = append(failures, fmt.Sprintf("call %d arguments = %s, want %s", index+1, printableJSON(got.Arguments), printableJSON(want.Arguments)))
 		}
 		if testCase.ExpectedErrorCode != "" && got.ErrorCode != testCase.ExpectedErrorCode {
@@ -239,6 +239,28 @@ func equalJSON(left, right json.RawMessage) bool {
 		return false
 	}
 	return reflect.DeepEqual(leftValue, rightValue)
+}
+
+// jsonContainsExpected checks that every key-value pair in expected exists in
+// actual with an equal value. Extra keys in actual are ignored, so a model
+// that passes optional parameters with valid values does not fail the check.
+func jsonContainsExpected(actual, expected json.RawMessage) bool {
+	var actualVal, expectedVal any
+	if json.Unmarshal(actual, &actualVal) != nil || json.Unmarshal(expected, &expectedVal) != nil {
+		return false
+	}
+	expectedMap, isExpectedMap := expectedVal.(map[string]any)
+	actualMap, isActualMap := actualVal.(map[string]any)
+	if !isExpectedMap || !isActualMap {
+		return reflect.DeepEqual(actualVal, expectedVal)
+	}
+	for key, want := range expectedMap {
+		got, exists := actualMap[key]
+		if !exists || !reflect.DeepEqual(got, want) {
+			return false
+		}
+	}
+	return true
 }
 
 func printableJSON(raw json.RawMessage) string {

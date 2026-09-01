@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -22,7 +23,7 @@ func TestScenarioSuiteScoresExpectedTranscript(t *testing.T) {
 		for index, call := range testCase.ExpectedToolCalls {
 			calls[index] = ObservedCall{Name: call.Name, Arguments: call.Arguments, ErrorCode: testCase.ExpectedErrorCode}
 		}
-		transcript.Cases = append(transcript.Cases, TranscriptCase{ID: testCase.ID, ToolCalls: calls})
+		transcript.Cases = append(transcript.Cases, TranscriptCase{ID: testCase.ID, ToolCalls: calls, Response: strings.Join(testCase.RequiredResponseTerms, " ")})
 	}
 
 	report := ScoreTranscript(suite, transcript)
@@ -162,6 +163,31 @@ func TestScoreTranscriptFailsRunnerError(t *testing.T) {
 	report := ScoreTranscript(suite, transcript)
 	if report.DeterministicPass || report.Failed != 1 {
 		t.Fatalf("score report = %#v, want runner error to fail", report)
+	}
+}
+
+func TestScoreTranscriptAcceptsExtraOptionalArguments(t *testing.T) {
+	suite := Suite{Version: "test-v1", Cases: []Case{{
+		ID: "extra-args", Type: "success", Prompt: "test", MaxToolCalls: 1,
+		ExpectedOutcome:   "one call with required args",
+		ExpectedToolCalls: []ExpectedCall{{Name: "get_arrivals_for_stop", Arguments: json.RawMessage(`{"stop_id":"test_1013"}`)}},
+	}}}
+	transcript := Transcript{
+		SuiteVersion: "test-v1",
+		Profile:      TranscriptProfile{ID: "test", Client: "test", Provider: "test", Model: "test"},
+		Cases: []TranscriptCase{{
+			ID: "extra-args",
+			ToolCalls: []ObservedCall{{
+				Name:      "get_arrivals_for_stop",
+				Arguments: json.RawMessage(`{"stop_id":"test_1013","minutes_after":30,"minutes_before":0}`),
+			}},
+			Response: "no arrivals",
+		}},
+	}
+
+	report := ScoreTranscript(suite, transcript)
+	if !report.DeterministicPass || report.Passed != 1 {
+		t.Fatalf("score report = %#v, want extra optional arguments to pass", report)
 	}
 }
 
