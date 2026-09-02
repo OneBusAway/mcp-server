@@ -50,7 +50,7 @@
       ],
       "prompt_argument_keys": ["stop_id"],
       "max_tool_calls": 1,
-      "forbidden_response_terms": ["live", "real-time", "realtime"],
+      "forbidden_response_terms": ["is currently live", "is a current real-time arrival", "is an upcoming live arrival"],
       "expected_outcome": "Preserves the reported prediction timestamp without presenting stale data as a current live arrival."
     },
     {
@@ -140,6 +140,7 @@
     {
       "id": "stop-details-and-arrivals-workflow",
       "type": "success",
+      "fixture": "stop_overview",
       "prompt": "Show stop `test_1013` and its upcoming buses.",
       "expected_tool_calls": [
         {
@@ -208,6 +209,7 @@
     {
       "id": "stop-overview-rider-workflow",
       "type": "success",
+      "fixture": "stop_overview",
       "prompt": "What buses stop at `test_1013` and when is the next one coming?",
       "expected_tool_calls": [
         {

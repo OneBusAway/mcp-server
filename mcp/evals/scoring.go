@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 // Transcript is a credential-free record produced by a model/client eval run.
@@ -226,11 +228,48 @@ func scoreResponseTerms(testCase Case, response string) []string {
 		}
 	}
 	for _, term := range testCase.ForbiddenResponseTerms {
-		if strings.Contains(normalized, strings.ToLower(term)) {
+		if containsStandaloneTerm(normalized, strings.ToLower(term)) {
 			failures = append(failures, fmt.Sprintf("response contains forbidden term %q", term))
 		}
 	}
 	return failures
+}
+
+// containsStandaloneTerm avoids treating a forbidden phrase as present when it
+// is only a prefix or suffix of a larger word (for example, "feed is current"
+// inside "feed is currently stale").
+func containsStandaloneTerm(text, term string) bool {
+	if term == "" {
+		return false
+	}
+	for start := 0; ; {
+		offset := strings.Index(text[start:], term)
+		if offset < 0 {
+			return false
+		}
+		start += offset
+		end := start + len(term)
+		if isTermBoundaryBefore(text, start) && isTermBoundaryAfter(text, end) {
+			return true
+		}
+		start = end
+	}
+}
+
+func isTermBoundaryBefore(text string, offset int) bool {
+	if offset == 0 {
+		return true
+	}
+	runeValue, _ := utf8.DecodeLastRuneInString(text[:offset])
+	return !unicode.IsLetter(runeValue) && !unicode.IsNumber(runeValue)
+}
+
+func isTermBoundaryAfter(text string, offset int) bool {
+	if offset == len(text) {
+		return true
+	}
+	runeValue, _ := utf8.DecodeRuneInString(text[offset:])
+	return !unicode.IsLetter(runeValue) && !unicode.IsNumber(runeValue)
 }
 
 func equalJSON(left, right json.RawMessage) bool {

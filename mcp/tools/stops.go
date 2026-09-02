@@ -32,7 +32,7 @@ func (h *Handler) registerStopTools(s *server.MCPServer) {
 
 	s.AddTool(
 		newPaginatedTool("search_stops",
-			mcp.WithDescription("Search stops by name, street, stop code, or landmark text. This is the primary way to translate a user-facing stop code (the short number printed on the physical sign, e.g. '1013') into the underlying agency-specific stop_id. Do not guess or construct a stop_id from a code — search for it. Do not invent GPS coordinates for a place name: pass the text as the query instead. Returns matching stops with their IDs, names, and coordinates."),
+			mcp.WithDescription("Search stops by name, street, stop code, or landmark text. This is the primary way to translate a user-facing stop code (the short number printed on the physical sign, e.g. '1013') into the underlying agency-specific stop_id. Do not guess or construct a stop_id from a code — search for it. If the user names a landmark but gives no numeric coordinates, use this tool with the landmark text; do not invent GPS coordinates. Returns matching stops with their IDs, names, and coordinates."),
 			mcp.WithString("query", mcp.Required(), mcp.Description("Stop name, street, stop code, or landmark text to search for")),
 			mcp.WithNumber("max_count", mcp.Description("Max results to return: 1-20 (default: 5)")),
 			mcp.WithOutputSchema[SuccessEnvelope[Page[StopResponse]]](),
@@ -42,7 +42,7 @@ func (h *Handler) registerStopTools(s *server.MCPServer) {
 
 	s.AddTool(
 		newPaginatedTool("find_stops_near_location",
-			mcp.WithDescription("Find transit stops near GPS coordinates. Requires actual latitude/longitude values provided by the user or derived from a prior lookup — do not invent coordinates for a place name. Use search_stops instead when you only have a landmark or text description."),
+			mcp.WithDescription("Find transit stops near GPS coordinates. Requires actual numeric latitude and longitude provided by the user or derived from a prior lookup. Never geocode a landmark or infer coordinates: use search_stops when you only have a place name or text description."),
 			mcp.WithNumber("lat", mcp.Required(), mcp.Description("Latitude")),
 			mcp.WithNumber("lon", mcp.Required(), mcp.Description("Longitude")),
 			mcp.WithNumber("radius", mcp.Description("Search radius in meters (default: 500, max: 5000)")),

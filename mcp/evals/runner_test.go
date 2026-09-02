@@ -34,6 +34,47 @@ func TestSuiteExecutesAgainstDeterministicFixtures(t *testing.T) {
 	}
 }
 
+func TestStopOverviewFixtureProvidesCompositeData(t *testing.T) {
+	fixture, err := StartFixture(Case{Type: "success", Fixture: "stop_overview"})
+	if err != nil {
+		t.Fatalf("start fixture: %v", err)
+	}
+	t.Cleanup(fixture.Close)
+
+	mcpServer := server.NewMCPServer("eval-runner", "1.0.0", server.WithToolCapabilities(true))
+	tools.RegisterAll(mcpServer, client.New(fixture.URL, "fixture-api-key", nil, nil))
+	entry := mcpServer.ListTools()["get_stop_overview"]
+	result, err := entry.Handler(t.Context(), mcp.CallToolRequest{
+		Params: mcp.CallToolParams{Name: "get_stop_overview", Arguments: map[string]any{"stop_id": "test_1013"}},
+	})
+	if err != nil {
+		t.Fatalf("call get_stop_overview: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("get_stop_overview returned tool error: %s", errorMessageOf(result))
+	}
+
+	encoded, err := json.Marshal(result.StructuredContent)
+	if err != nil {
+		t.Fatalf("encode structured result: %v", err)
+	}
+	var response struct {
+		Data struct {
+			StopName string   `json:"stop_name"`
+			Routes   []string `json:"routes_serving"`
+			Next     []struct {
+				TripID string `json:"trip_id"`
+			} `json:"next_arrivals"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(encoded, &response); err != nil {
+		t.Fatalf("decode structured result: %v", err)
+	}
+	if response.Data.StopName != "Fixture Stop" || len(response.Data.Routes) != 1 || response.Data.Routes[0] != "test_10" || len(response.Data.Next) != 1 || response.Data.Next[0].TripID != "test_trip" {
+		t.Fatalf("overview fixture response = %s, want stop, route, and next arrival", encoded)
+	}
+}
+
 func executeEvalCase(t *testing.T, testCase Case) {
 	t.Helper()
 

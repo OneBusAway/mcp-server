@@ -31,8 +31,8 @@ func (h *Handler) registerTripTools(s *server.MCPServer) {
 
 	s.AddTool(
 		mcp.NewTool("get_trip_details",
-			mcp.WithDescription("Get full real-time status for a trip: vehicle position, schedule deviation, next stops with predicted times, and phase. The richest single-trip endpoint — use when the user asks where a specific bus is right now or wants live tracking for a trip_id obtained from get_arrivals_for_stop."),
-			mcp.WithString("trip_id", mcp.Required(), mcp.Description("Trip ID (e.g. 'unitrans_12345')")),
+			mcp.WithDescription("Get full real-time status for one trip: vehicle position, schedule deviation, next stops with predicted times, and phase. Use when the user asks where a specific bus is right now or wants live tracking. Requires a real trip_id explicitly supplied by the user or returned by another tool such as get_arrivals_for_stop; never substitute a stop_id or route_id, and do not guess one."),
+			mcp.WithString("trip_id", mcp.Required(), mcp.Description("Trip ID returned by a prior tool or explicitly provided by the user; never use a stop ID or route ID")),
 			mcp.WithNumber("time", mcp.Description("Query trip at a Unix epoch millisecond timestamp through 2100")),
 			mcp.WithBoolean("include_schedule", mcp.Description("Include full stop schedule in response (default true)")),
 			mcp.WithBoolean("include_status", mcp.Description("Include real-time status in response (default true)")),

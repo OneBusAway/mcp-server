@@ -123,6 +123,9 @@ non-obvious parameter usage:
 |---|---|
 | "at stop <prefix>_<code>" (already an ID) | Skip search. Call the target tool directly with the ID. |
 | "stop code 274" or "stop number 274" (no prefix) | search_stops("274") first, then use the returned ID in get_arrivals_for_stop |
+| "near City Hall" (no coordinates) | search_stops("City Hall"); never invent coordinates or use find_stops_near_location |
+| "show this stop and its upcoming buses" | get_stop_overview once; it already includes the stop, routes, and next arrivals |
+| "live status of the arriving trip" | get_arrivals_for_stop first, then pass the returned trip_id to get_trip_details; never guess a trip_id from a stop_id or route_id |
 | "what buses at 7 AM at stop X?" | get_arrivals_for_stop with time=<7AM epoch ms> — see time section below |
 | "between 9:30 AM and 10:30 AM" | get_arrivals_for_stop with time=T1, minutes_after=(T2−T1) — see time-range section |
 | "full day timetable / all trip IDs for stop" | get_stop_schedule, not get_arrivals_for_stop |
@@ -222,6 +225,9 @@ Example: "between 9:30 AM and 10:30 AM"
 
 ## Common Mistakes to Avoid
 - Do not call search_stops if the user already gave you a stop ID
+- If an ID is malformed or path-like, refuse it without calling an unrelated tool
+- After a tool returns a public upstream error, report that error safely; do not retry the request through an unrelated tool
+- Never pass a stop_id as a trip_id. If the user gives only a stop and asks about an arriving trip, call get_arrivals_for_stop first and use its returned trip_id
 - Do not assume agency IDs — call get_agencies if unsure
 - Do not confuse trip_id with vehicle_id (they are different)
 - schedule_deviation is in seconds, not minutes — divide by 60 to display

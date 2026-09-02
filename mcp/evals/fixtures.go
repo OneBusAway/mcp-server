@@ -82,6 +82,23 @@ func fixtureResponses(fixtureName string) (map[string]obafixture.Response, error
 			"staticGtfsLastUpdated":"2026-01-01T00:00:00Z",
 			"realtimeFeeds":{"trip_updates":"2026-01-01T00:00:00Z"}
 		}`}
+	case "stop_overview":
+		responses["/api/where/arrivals-and-departures-for-stop/test_1013.json"] = obafixture.Response{Body: `{
+			"code":200,
+			"data":{
+				"entry":{
+					"stopId":"test_1013",
+					"arrivalsAndDepartures":[{
+						"tripId":"test_trip","routeId":"test_10","routeShortName":"10",
+						"tripHeadsign":"Downtown","predicted":true,
+						"predictedArrivalTime":1770000180000,"scheduledArrivalTime":1770000180000
+					}]
+				},
+				"references":{"stops":[{
+					"id":"test_1013","name":"Fixture Stop","lat":27.9488,"lon":-82.4582
+				}]}
+			}
+		}`}
 	case "empty_arrivals":
 		responses["/api/where/arrivals-and-departures-for-stop/test_1013.json"] = entry(`{"stopId":"test_1013","arrivalsAndDepartures":[]}`)
 	case "delayed_arrival":

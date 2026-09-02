@@ -88,6 +88,29 @@ func TestScoreTranscriptReportsCallBudgetArgumentsAndResponseFailures(t *testing
 	}
 }
 
+func TestScoreTranscriptMatchesForbiddenTermsAtWordBoundaries(t *testing.T) {
+	suite := Suite{Version: "test-v1", Cases: []Case{{
+		ID:                     "stale-feed",
+		Type:                   "success",
+		Prompt:                 "test",
+		MaxToolCalls:           1,
+		ExpectedOutcome:        "reports a stale feed",
+		ExpectedToolCalls:      []ExpectedCall{{Name: "get_metadata", Arguments: json.RawMessage(`{}`)}},
+		ForbiddenResponseTerms: []string{"feed is current"},
+	}}}
+	base := Transcript{SuiteVersion: suite.Version, Profile: TranscriptProfile{ID: "test", Client: "test", Provider: "test", Model: "test"}}
+
+	base.Cases = []TranscriptCase{{ID: "stale-feed", ToolCalls: []ObservedCall{{Name: "get_metadata", Arguments: json.RawMessage(`{}`)}}, Response: "The feed is currently stale."}}
+	if report := ScoreTranscript(suite, base); !report.DeterministicPass {
+		t.Fatalf("score report = %#v, want currently-stale response to pass", report)
+	}
+
+	base.Cases[0].Response = "The feed is current."
+	if report := ScoreTranscript(suite, base); report.DeterministicPass {
+		t.Fatalf("score report = %#v, want fresh-feed claim to fail", report)
+	}
+}
+
 func TestScoreTranscriptReportsMissingUnexpectedDuplicateAndVersionCases(t *testing.T) {
 	suite := Suite{Version: "suite-v1", Cases: []Case{
 		{ID: "missing", Type: "success", Prompt: "test", MaxToolCalls: 1, ExpectedOutcome: "test", ExpectedToolCalls: []ExpectedCall{{Name: "get_stop", Arguments: json.RawMessage(`{}`)}}},
