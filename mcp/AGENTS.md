@@ -20,6 +20,8 @@ applicable planned hardening work.
 4. Make the smallest complete change for the requested task.
 5. Do not refactor unrelated code or invent requirements.
 
+6. "ALWAYS keep the changes in the code to be as simple as possible, straight to the point, with no comments added." When you intentionally change scope or behavior, add a very brief intent note (1–2 lines) explaining the purpose, rationale, and expected impact so reviewers can quickly understand the change.
+
 ## Architecture and contracts
 
 Keep this boundary explicit:

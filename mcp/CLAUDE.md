@@ -227,3 +227,4 @@ upstream failures into the stable public MCP error contract; never expose raw
 3. Remove unnecessary abstractions, comments, debug code, and unrelated changes.
 4. Verify public MCP contracts were not unintentionally changed.
 5. Report checks that could not be run.
+6. "ALWAYS keep the changes in the code to be as simple as possible, straight to the point, with no comments added." If you must change scope or behavior intentionally, add a short intent note (1–2 lines) describing what changed, why, and the expected impact for reviewers.
