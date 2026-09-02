@@ -17,8 +17,10 @@ import (
 
 func TestToolObservabilityAddsRequestIDAndSafeLogFields(t *testing.T) {
 	var logs bytes.Buffer
+	var observedToolName string
 	middleware := toolObservabilityMiddleware(log.New(&logs, "", 0), nil)
-	handler := middleware(func(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	handler := middleware(func(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		observedToolName = requestmeta.ToolName(ctx)
 		return mcp.NewToolResultStructured(
 			tools.SuccessEnvelope[any]{Data: map[string]string{"id": "test_1"}},
 			"fixture result",
@@ -36,6 +38,9 @@ func TestToolObservabilityAddsRequestIDAndSafeLogFields(t *testing.T) {
 	}
 	if envelope.Meta.RequestID != "request-123" {
 		t.Fatalf("response request ID = %q, want request-123", envelope.Meta.RequestID)
+	}
+	if observedToolName != "get_stop" {
+		t.Fatalf("handler tool name = %q, want get_stop", observedToolName)
 	}
 
 	var entry map[string]any

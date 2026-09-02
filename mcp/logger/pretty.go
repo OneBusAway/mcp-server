@@ -37,19 +37,28 @@ func (pw *PrettyWriter) Write(p []byte) (int, error) {
 	switch event {
 	case "upstream":
 		op, _ := m["op"].(string)
+		tool, _ := m["tool"].(string)
+		if tool != "" {
+			op += " (" + tool + ")"
+		}
 		cache, _ := m["cache"].(string)
 		ms, _ := m["ms"].(float64)
 		bytes, _ := m["bytes"].(float64)
 		errCode, _ := m["error_code"].(string)
 		requestID, _ := m["request_id"].(string)
+		params := formatParams(m["params"])
+		extraParams := ""
+		if params != "" {
+			extraParams = "  params=" + params
+		}
 
 		switch {
 		case errCode != "":
-			fmt.Fprintf(pw.w, "%s [ERR]  %-42s %s  request_id=%s\n", ts, op, errCode, requestID)
+			fmt.Fprintf(pw.w, "%s [ERR]  %-42s %s%s  request_id=%s\n", ts, op, errCode, extraParams, requestID)
 		case cache == "hit":
-			fmt.Fprintf(pw.w, "%s [HIT]  %s  request_id=%s\n", ts, op, requestID)
+			fmt.Fprintf(pw.w, "%s [HIT]  %s%s  request_id=%s\n", ts, op, extraParams, requestID)
 		case cache == "l2-hit":
-			fmt.Fprintf(pw.w, "%s [L2]   %s  request_id=%s\n", ts, op, requestID)
+			fmt.Fprintf(pw.w, "%s [L2]   %s%s  request_id=%s\n", ts, op, extraParams, requestID)
 		default:
 			extra := ""
 			if ms > 0 {
@@ -61,12 +70,15 @@ func (pw *PrettyWriter) Write(p []byte) (int, error) {
 				}
 				extra += fmtBytes(bytes)
 			}
-			fmt.Fprintf(pw.w, "%s [MISS] %-42s %s  request_id=%s\n", ts, op, extra, requestID)
+			fmt.Fprintf(pw.w, "%s [MISS] %-42s %s%s  request_id=%s\n", ts, op, extra, extraParams, requestID)
 		}
 
 	case "tool":
 		tool, _ := m["tool"].(string)
 		outcome, _ := m["outcome"].(string)
+		if outcome == "success" {
+			return len(p), nil
+		}
 		cache, _ := m["cache"].(string)
 		requestID, _ := m["request_id"].(string)
 		ms, _ := m["ms"].(float64)
@@ -126,4 +138,15 @@ func fmtBytes(b float64) string {
 	default:
 		return fmt.Sprintf("%.0fB", b)
 	}
+}
+
+func formatParams(params any) string {
+	if params == nil {
+		return ""
+	}
+	encoded, err := json.Marshal(params)
+	if err != nil || string(encoded) == "{}" {
+		return ""
+	}
+	return string(encoded)
 }

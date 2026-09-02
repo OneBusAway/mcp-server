@@ -36,11 +36,15 @@ func TestNormalizeRequestID(t *testing.T) {
 func TestRequestMetadataRoundTrip(t *testing.T) {
 	ctx := WithRequestID(context.Background(), "request-1")
 	ctx = WithCallerHash(ctx, "caller-1")
+	ctx = WithToolName(ctx, "get_stop")
 	if got := RequestID(ctx); got != "request-1" {
 		t.Fatalf("RequestID = %q, want request-1", got)
 	}
 	if got := CallerHash(ctx); got != "caller-1" {
 		t.Fatalf("CallerHash = %q, want caller-1", got)
+	}
+	if got := ToolName(ctx); got != "get_stop" {
+		t.Fatalf("ToolName = %q, want get_stop", got)
 	}
 }
 

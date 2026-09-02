@@ -415,7 +415,7 @@ func TestRealtimeResponsesAreNotCached(t *testing.T) {
 	}
 }
 
-func TestRequestLogsIncludeCorrelationButExcludeArgumentsAndAPIKey(t *testing.T) {
+func TestRequestLogsIncludeCorrelationAndParamsButExcludeAPIKey(t *testing.T) {
 	var logs bytes.Buffer
 	c := New("https://oba.test", "secret-api-key", log.New(&logs, "", 0), nil)
 	c.httpClient = &http.Client{Transport: roundTripperFunc(func(*http.Request) (*http.Response, error) {
@@ -423,6 +423,7 @@ func TestRequestLogsIncludeCorrelationButExcludeArgumentsAndAPIKey(t *testing.T)
 	})}
 	params := url.Values{"includeSchedule": {"false"}, "time": {"987654"}}
 	ctx := requestmeta.WithRequestID(context.Background(), "request-123")
+	ctx = requestmeta.WithToolName(ctx, "get_trip_details")
 	if _, err := c.Get(ctx, "/api/where/trip-details/test_trip.json", params); err != nil {
 		t.Fatalf("Get returned error: %v", err)
 	}
@@ -430,8 +431,14 @@ func TestRequestLogsIncludeCorrelationButExcludeArgumentsAndAPIKey(t *testing.T)
 	if !strings.Contains(got, `"request_id":"request-123"`) {
 		t.Fatalf("request log does not contain correlation ID: %s", got)
 	}
-	if strings.Contains(got, "secret-api-key") || strings.Contains(got, `"key"`) || strings.Contains(got, "includeSchedule") || strings.Contains(got, "987654") {
-		t.Fatalf("request log exposed arguments or API key: %s", got)
+	if !strings.Contains(got, `"tool":"get_trip_details"`) {
+		t.Fatalf("request log does not contain tool name: %s", got)
+	}
+	if !strings.Contains(got, `"includeSchedule":["false"]`) || !strings.Contains(got, `"time":["987654"]`) {
+		t.Fatalf("request log omitted parameters: %s", got)
+	}
+	if strings.Contains(got, "secret-api-key") || strings.Contains(got, `"key"`) {
+		t.Fatalf("request log exposed API key: %s", got)
 	}
 }
 

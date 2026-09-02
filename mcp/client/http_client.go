@@ -74,7 +74,7 @@ const (
 )
 
 // UpstreamObservation is the bounded, privacy-safe data emitted for an OBA
-// request attempt. It never contains URL parameters or credentials.
+// request attempt. Query parameters are available to logs, but credentials are excluded.
 type UpstreamObservation struct {
 	Operation  string
 	Cache      string
@@ -331,11 +331,11 @@ func (c *OBAClient) GetWithCacheState(ctx context.Context, path string, params u
 	now := c.clock()
 	if ttl > 0 {
 		if result, ok := c.memoryCacheGet(key, now); ok {
-			c.logRequest(ctx, op, "hit", 0, len(result), nil)
+			c.logRequest(ctx, op, "hit", query, 0, len(result), nil)
 			return result, CacheHit, nil
 		}
 		if result, ok := c.loadPersistentCache(ctx, key, now); ok {
-			c.logRequest(ctx, op, "l2-hit", 0, len(result), nil)
+			c.logRequest(ctx, op, "l2-hit", query, 0, len(result), nil)
 			return result, CacheHit, nil
 		}
 	}
@@ -400,7 +400,7 @@ func (c *OBAClient) fetch(ctx context.Context, path string, query url.Values, op
 		}
 		start := time.Now()
 		result, failure := c.doRequest(ctx, requestURL)
-		c.logRequest(ctx, op, "miss", time.Since(start).Milliseconds(), len(result), failure)
+		c.logRequest(ctx, op, "miss", query, time.Since(start).Milliseconds(), len(result), failure)
 		if failure == nil {
 			c.recordCircuitSuccess()
 			return result, nil
@@ -580,7 +580,7 @@ func (c *OBAClient) recordCircuitFailure(err *UpstreamError) {
 	}
 }
 
-func (c *OBAClient) logRequest(ctx context.Context, op, cache string, ms int64, bytes int, err *UpstreamError) {
+func (c *OBAClient) logRequest(ctx context.Context, op, cache string, params url.Values, ms int64, bytes int, err *UpstreamError) {
 	observation := UpstreamObservation{
 		Operation: op,
 		Cache:     cache,
@@ -599,11 +599,35 @@ func (c *OBAClient) logRequest(ctx context.Context, op, cache string, ms int64, 
 	if c.logger == nil {
 		return
 	}
+	encodedParams, marshalErr := json.Marshal(sanitizedParams(params))
+	if marshalErr != nil {
+		encodedParams = []byte(`{}`)
+	}
 	if err != nil {
-		c.logger.Printf(`{"event":"upstream","request_id":%q,"op":%q,"cache":%q,"ms":%d,"status":%d,"error_code":%q}`, requestmeta.RequestID(ctx), op, cache, ms, err.StatusCode, err.Code)
+		c.logger.Printf(`{"event":"upstream","request_id":%q,"tool":%q,"op":%q,"cache":%q,"params":%s,"ms":%d,"status":%d,"error_code":%q}`, requestmeta.RequestID(ctx), requestmeta.ToolName(ctx), op, cache, encodedParams, ms, err.StatusCode, err.Code)
 		return
 	}
-	c.logger.Printf(`{"event":"upstream","request_id":%q,"op":%q,"cache":%q,"ms":%d,"status":%d,"bytes":%d}`, requestmeta.RequestID(ctx), op, cache, ms, observation.StatusCode, bytes)
+	c.logger.Printf(`{"event":"upstream","request_id":%q,"tool":%q,"op":%q,"cache":%q,"params":%s,"ms":%d,"status":%d,"bytes":%d}`, requestmeta.RequestID(ctx), requestmeta.ToolName(ctx), op, cache, encodedParams, ms, observation.StatusCode, bytes)
+}
+
+func sanitizedParams(params url.Values) url.Values {
+	safe := make(url.Values, len(params))
+	for key, values := range params {
+		if isCredentialParam(key) {
+			continue
+		}
+		safe[key] = append([]string(nil), values...)
+	}
+	return safe
+}
+
+func isCredentialParam(key string) bool {
+	switch strings.ToLower(key) {
+	case "key", "api_key", "apikey", "access_token", "token", "authorization", "password", "secret":
+		return true
+	default:
+		return false
+	}
 }
 
 // FormatRelativeTime formats a Unix millisecond timestamp relative to now in loc.

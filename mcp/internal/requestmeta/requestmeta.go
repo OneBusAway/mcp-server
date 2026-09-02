@@ -21,6 +21,7 @@ type contextKey uint8
 const (
 	requestIDKey contextKey = iota
 	callerHashKey
+	toolNameKey
 )
 
 // NewRequestID returns a random, log-safe request identifier.
@@ -77,4 +78,13 @@ func WithCallerHash(ctx context.Context, callerHash string) context.Context {
 func CallerHash(ctx context.Context) string {
 	callerHash, _ := ctx.Value(callerHashKey).(string)
 	return callerHash
+}
+
+func WithToolName(ctx context.Context, toolName string) context.Context {
+	return context.WithValue(ctx, toolNameKey, toolName)
+}
+
+func ToolName(ctx context.Context) string {
+	toolName, _ := ctx.Value(toolNameKey).(string)
+	return toolName
 }

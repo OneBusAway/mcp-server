@@ -17,6 +17,7 @@ import (
 func toolObservabilityMiddleware(appLogger *log.Logger, metrics *operationalMetrics) server.ToolHandlerMiddleware {
 	return func(next server.ToolHandlerFunc) server.ToolHandlerFunc {
 		return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			ctx = requestmeta.WithToolName(ctx, request.Params.Name)
 			requestID := requestmeta.RequestID(ctx)
 			if requestID == "" {
 				requestID = requestmeta.NormalizeRequestID(request.Header.Get("X-Request-ID"))
