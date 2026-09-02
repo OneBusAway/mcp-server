@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"oba-mcp/client"
+	"strings"
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -340,17 +341,19 @@ func (h *Handler) getTripsForRoute(ctx context.Context, req mcp.CallToolRequest)
 
 	results := make([]RouteTripResponse, 0, len(list))
 	for _, trip := range list {
-		out := RouteTripResponse{TripID: trip.TripID}
-		if trip.Trip != nil {
-			out.Headsign = trip.Trip.TripHeadsign
+		status := trip.Status
+		active := resolveActiveTrip(status, resp.Data.References.Trips)
+		if status == nil || active == nil || active.RouteID != routeID || strings.EqualFold(status.Status, "CANCELED") {
+			continue
 		}
-		if trip.Status != nil {
-			out.Phase = trip.Status.Phase
-			out.VehicleID = trip.Status.VehicleID
-			if trip.Status.Position != nil {
-				out.Lat = trip.Status.Position.Lat
-				out.Lon = trip.Status.Position.Lon
-			}
+		activeTripID := status.ActiveTripID
+		if activeTripID == "" {
+			activeTripID = active.ID
+		}
+		out := RouteTripResponse{TripID: activeTripID, RouteID: active.RouteID, ActiveTripID: activeTripID, ActiveRouteID: active.RouteID, ActiveShapeID: active.ShapeID, Headsign: active.TripHeadsign, Phase: status.Phase, VehicleID: status.VehicleID}
+		if status.Position != nil {
+			out.Lat = status.Position.Lat
+			out.Lon = status.Position.Lon
 		}
 		results = append(results, out)
 	}

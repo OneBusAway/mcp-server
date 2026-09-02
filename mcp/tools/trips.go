@@ -31,7 +31,7 @@ func (h *Handler) registerTripTools(s *server.MCPServer) {
 
 	s.AddTool(
 		mcp.NewTool("get_trip_details",
-			mcp.WithDescription("Get full real-time status for one trip: vehicle position, schedule deviation, next stops with predicted times, and phase. Use when the user asks where a specific bus is right now or wants live tracking. Requires a real trip_id explicitly supplied by the user or returned by another tool such as get_arrivals_for_stop; never substitute a stop_id or route_id, and do not guess one."),
+			mcp.WithDescription("Get full real-time status for a trip independently of a stop: vehicle position, schedule deviation, next stops, and phase. Do not use this to refresh a selected arrival at a known stop; use get_arrival_and_departure_for_stop for that tracking flow. Requires a real trip_id explicitly supplied by the user or returned by another tool; never substitute a stop_id or route_id, and do not guess one."),
 			mcp.WithString("trip_id", mcp.Required(), mcp.Description("Trip ID returned by a prior tool or explicitly provided by the user; never use a stop ID or route ID")),
 			mcp.WithNumber("time", mcp.Description("Query trip at a Unix epoch millisecond timestamp through 2100")),
 			mcp.WithBoolean("include_schedule", mcp.Description("Include full stop schedule in response (default true)")),
@@ -93,11 +93,20 @@ func tripDetailsResponse(entry client.TripDetails, references []client.Trip, req
 	}
 	if entry.Status != nil {
 		status := entry.Status
+		active := resolveActiveTrip(status, references)
 		response.Phase = status.Phase
 		response.Status = status.Status
 		response.VehicleID = status.VehicleID
 		response.DeviationMins = status.ScheduleDeviation / 60
 		response.Bearing = status.Orientation
+		response.ActiveTripID = status.ActiveTripID
+		if active != nil {
+			if response.ActiveTripID == "" {
+				response.ActiveTripID = active.ID
+			}
+			response.ActiveRouteID = active.RouteID
+			response.ActiveShapeID = active.ShapeID
+		}
 		if status.Position != nil {
 			response.Lat = status.Position.Lat
 			response.Lon = status.Position.Lon
@@ -106,12 +115,35 @@ func tripDetailsResponse(entry client.TripDetails, references []client.Trip, req
 	return response
 }
 
-func vehicleResponse(entry client.TripDetails, references []client.Trip) VehicleResponse {
-	detail := tripDetailsResponse(entry, references, entry.TripID)
-	return VehicleResponse{VehicleID: detail.VehicleID, TripID: detail.TripID, RouteID: detail.RouteID, Phase: detail.Phase, Lat: detail.Lat, Lon: detail.Lon, DeviationMins: detail.DeviationMins}
+func resolveActiveTrip(status *client.TripStatus, references []client.Trip) *client.Trip {
+	if status == nil {
+		return nil
+	}
+	if status.ActiveTrip != nil {
+		return status.ActiveTrip
+	}
+	for i := range references {
+		if references[i].ID == status.ActiveTripID {
+			return &references[i]
+		}
+	}
+	return nil
 }
 
-func vehicleStatusResponse(vehicle client.VehicleStatus) VehicleResponse {
+func vehicleResponse(entry client.TripDetails, references []client.Trip) VehicleResponse {
+	detail := tripDetailsResponse(entry, references, entry.TripID)
+	tripID := detail.ActiveTripID
+	if tripID == "" {
+		tripID = detail.TripID
+	}
+	routeID := detail.ActiveRouteID
+	if routeID == "" {
+		routeID = detail.RouteID
+	}
+	return VehicleResponse{VehicleID: detail.VehicleID, TripID: tripID, RouteID: routeID, ActiveTripID: detail.ActiveTripID, ActiveRouteID: detail.ActiveRouteID, ActiveShapeID: detail.ActiveShapeID, Phase: detail.Phase, Lat: detail.Lat, Lon: detail.Lon, DeviationMins: detail.DeviationMins}
+}
+
+func vehicleStatusResponse(vehicle client.VehicleStatus, references []client.Trip) VehicleResponse {
 	response := VehicleResponse{VehicleID: vehicle.VehicleID, TripID: vehicle.TripID, Phase: vehicle.Phase}
 	if vehicle.Location != nil {
 		response.Lat = vehicle.Location.Lat
@@ -119,13 +151,20 @@ func vehicleStatusResponse(vehicle client.VehicleStatus) VehicleResponse {
 	}
 	if vehicle.TripStatus != nil {
 		status := vehicle.TripStatus
-		if response.TripID == "" {
-			response.TripID = status.ActiveTripID
+		active := resolveActiveTrip(status, references)
+		response.ActiveTripID = status.ActiveTripID
+		if response.ActiveTripID == "" && active != nil {
+			response.ActiveTripID = active.ID
+		}
+		if response.ActiveTripID != "" {
+			response.TripID = response.ActiveTripID
 		}
 		response.DeviationMins = status.ScheduleDeviation / 60
-		if status.ActiveTrip != nil {
-			response.RouteID = status.ActiveTrip.RouteID
-			response.Headsign = status.ActiveTrip.TripHeadsign
+		if active != nil {
+			response.ActiveRouteID = active.RouteID
+			response.ActiveShapeID = active.ShapeID
+			response.RouteID = response.ActiveRouteID
+			response.Headsign = active.TripHeadsign
 		}
 	}
 	return response
@@ -234,7 +273,7 @@ func (h *Handler) getVehiclesForAgency(ctx context.Context, req mcp.CallToolRequ
 
 	results := make([]VehicleResponse, 0, len(list))
 	for _, vehicle := range list {
-		results = append(results, vehicleStatusResponse(vehicle))
+		results = append(results, vehicleStatusResponse(vehicle, resp.Data.References.Trips))
 	}
 
 	page, truncated := paginate("get_vehicles_for_agency", results, offset, limit)

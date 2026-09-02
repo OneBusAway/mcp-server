@@ -21,6 +21,10 @@ type ArrivalResponse struct {
 	DistanceFromStop          float64 `json:"distance_from_stop_meters,omitempty"`
 	Status                    string  `json:"status"`
 	VehicleID                 string  `json:"vehicle_id,omitempty"`
+	ActiveTripID              string  `json:"active_trip_id,omitempty"`
+	ActiveRouteID             string  `json:"active_route_id,omitempty"`
+	ActiveShapeID             string  `json:"active_shape_id,omitempty"`
+	ActiveHeadsign            string  `json:"active_headsign,omitempty"`
 	VehicleLat                float64 `json:"vehicle_lat,omitempty"`
 	VehicleLon                float64 `json:"vehicle_lon,omitempty"`
 	VehicleBearing            float64 `json:"vehicle_bearing,omitempty"`

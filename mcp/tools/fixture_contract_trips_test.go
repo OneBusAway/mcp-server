@@ -26,9 +26,9 @@ func TestGetTripDetailsContract(t *testing.T) {
 					"tripId":"test_trip",
 					"serviceDate":1770000000000,
 					"schedule":{"stopTimes":[]},
-					"status":{"phase":"in_progress","status":"default","vehicleId":"test_bus","orientation":90,"scheduleDeviation":120,"position":{"lat":27.9488,"lon":-82.4582}}
+					"status":{"activeTripId":"test_active_trip","phase":"in_progress","status":"default","vehicleId":"test_bus","orientation":90,"scheduleDeviation":120,"position":{"lat":27.9488,"lon":-82.4582}}
 				},
-				"references":{"trips":[{"id":"test_trip","routeId":"test_10","shapeId":"shape_1"}]}
+				"references":{"trips":[{"id":"test_trip","routeId":"test_10","shapeId":"shape_1"},{"id":"test_active_trip","routeId":"test_20","shapeId":"active_shape"}]}
 			}
 		}`,
 	})
@@ -43,6 +43,9 @@ func TestGetTripDetailsContract(t *testing.T) {
 	}
 	if details.Lat != 27.9488 || details.Lon != -82.4582 || details.Bearing != 90 {
 		t.Fatalf("trip details position mapping wrong: %#v", details)
+	}
+	if details.ActiveTripID != "test_active_trip" || details.ActiveRouteID != "test_20" || details.ActiveShapeID != "active_shape" {
+		t.Fatalf("trip details active identity wrong: %#v", details)
 	}
 	// scheduleDeviation is in seconds upstream; the tool must expose it in
 	// minutes so agents don't have to convert.
@@ -64,7 +67,7 @@ func TestGetTripForVehicleContract(t *testing.T) {
 					"tripId":"test_trip",
 					"serviceDate":1770000000000,
 					"schedule":{"stopTimes":[]},
-					"status":{"phase":"in_progress","vehicleId":"test_bus","position":{"lat":27.9,"lon":-82.4}}
+					"status":{"activeTripId":"test_trip","phase":"in_progress","vehicleId":"test_bus","position":{"lat":27.9,"lon":-82.4}}
 				},
 				"references":{"trips":[{"id":"test_trip","routeId":"test_10"}]}
 			}
@@ -78,6 +81,9 @@ func TestGetTripForVehicleContract(t *testing.T) {
 	}
 	if vehicle.Lat != 27.9 || vehicle.Lon != -82.4 {
 		t.Fatalf("trip-for-vehicle position wrong: %#v", vehicle)
+	}
+	if vehicle.ActiveTripID != "test_trip" || vehicle.ActiveRouteID != "test_10" {
+		t.Fatalf("trip-for-vehicle active identity wrong: %#v", vehicle)
 	}
 }
 
@@ -115,7 +121,7 @@ func TestGetTripsForLocationContract(t *testing.T) {
 		"/api/where/trips-for-location.json": envelopeList(`[{
 			"tripId":"test_trip",
 			"trip":{"id":"test_trip","routeId":"test_10"},
-			"status":{"phase":"in_progress","vehicleId":"test_bus","position":{"lat":27.9,"lon":-82.4}}
+			"status":{"activeTripId":"test_trip","phase":"in_progress","vehicleId":"test_bus","position":{"lat":27.9,"lon":-82.4},"activeTrip":{"id":"test_trip","routeId":"test_10"}}
 		}]`),
 	})
 

@@ -42,6 +42,6 @@ func TestGetStopOverviewContract(t *testing.T) {
 	}
 	assertRequestPath(t, upstream, "/api/where/arrivals-and-departures-for-stop/test_1013.json", map[string]string{
 		"minutesBefore": "0",
-		"minutesAfter":  "30",
+		"minutesAfter":  "60",
 	})
 }

@@ -111,7 +111,11 @@ func TestGetTripsForRouteContract(t *testing.T) {
 				"list":[{
 					"tripId":"test_trip",
 					"trip":{"id":"test_trip","routeId":"test_10","tripHeadsign":"Downtown"},
-					"status":{"phase":"in_progress","vehicleId":"test_bus","position":{"lat":27.9,"lon":-82.4}}
+					"status":{"activeTripId":"test_trip","phase":"in_progress","vehicleId":"test_bus","position":{"lat":27.9,"lon":-82.4},"activeTrip":{"id":"test_trip","routeId":"test_10","shapeId":"shape_1","tripHeadsign":"Downtown"}}
+				},{
+					"tripId":"future_interlined_trip",
+					"trip":{"id":"future_interlined_trip","routeId":"test_10","tripHeadsign":"Later"},
+					"status":{"activeTripId":"current_other_route","phase":"in_progress","vehicleId":"test_bus_2","position":{"lat":28.0,"lon":-82.5},"activeTrip":{"id":"current_other_route","routeId":"test_20","tripHeadsign":"Current Route"}}
 				}],
 				"references":{"stops":[],"agencies":[]}
 			}
@@ -129,6 +133,9 @@ func TestGetTripsForRouteContract(t *testing.T) {
 	}
 	if trip.VehicleID != "test_bus" || trip.Lat != 27.9 || trip.Lon != -82.4 {
 		t.Fatalf("trips-for-route vehicle mapping wrong: %#v", trip)
+	}
+	if trip.ActiveTripID != "test_trip" || trip.ActiveRouteID != "test_10" || trip.ActiveShapeID != "shape_1" {
+		t.Fatalf("trips-for-route active identity wrong: %#v", trip)
 	}
 	// include_schedule and include_status default to true and must appear in
 	// the outgoing query so the model can distinguish schedule-only vs

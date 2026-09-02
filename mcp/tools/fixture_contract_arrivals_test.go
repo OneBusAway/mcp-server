@@ -14,7 +14,8 @@ func TestGetArrivalAndDepartureForStopContract(t *testing.T) {
 			"predicted":true,
 			"scheduledArrivalTime":1770000300000,
 			"predictedArrivalTime":1770000360000,
-			"scheduleDeviation":45
+			"scheduleDeviation":45,
+			"tripStatus":{"activeTripId":"test_active_trip","orientation":90,"position":{"lat":27.9488,"lon":-82.4582},"activeTrip":{"id":"test_active_trip","routeId":"test_20","shapeId":"active_shape","tripHeadsign":"Current Route"}}
 		}`),
 	})
 
@@ -22,6 +23,7 @@ func TestGetArrivalAndDepartureForStopContract(t *testing.T) {
 		"stop_id":      "test_1013",
 		"trip_id":      "test_trip",
 		"service_date": float64(1_770_000_000_000),
+		"vehicle_id":   "test_bus",
 	})
 	arrival := dataAs[ArrivalResponse](t, result)
 	if arrival.TripID != "test_trip" || arrival.RouteID != "test_10" || arrival.RouteName != "10" {
@@ -33,9 +35,13 @@ func TestGetArrivalAndDepartureForStopContract(t *testing.T) {
 	if arrival.ScheduledArrivalMS != 1_770_000_300_000 || arrival.Timezone != "America/Los_Angeles" {
 		t.Fatalf("scheduled-arrival timezone/preservation wrong: %#v", arrival)
 	}
+	if arrival.ActiveTripID != "test_active_trip" || arrival.ActiveRouteID != "test_20" || arrival.ActiveShapeID != "active_shape" {
+		t.Fatalf("active trip mapping wrong: %#v", arrival)
+	}
 	assertRequestPath(t, upstream, "/api/where/arrival-and-departure-for-stop/test_1013.json", map[string]string{
 		"tripId":      "test_trip",
 		"serviceDate": "1770000000000",
+		"vehicleId":   "test_bus",
 	})
 }
 

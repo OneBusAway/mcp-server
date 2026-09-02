@@ -15,6 +15,9 @@ type TripDetailsResponse struct {
 	Phase         string  `json:"phase,omitempty"`
 	Status        string  `json:"status,omitempty"`
 	VehicleID     string  `json:"vehicle_id,omitempty"`
+	ActiveTripID  string  `json:"active_trip_id,omitempty"`
+	ActiveRouteID string  `json:"active_route_id,omitempty"`
+	ActiveShapeID string  `json:"active_shape_id,omitempty"`
 	Lat           float64 `json:"lat,omitempty"`
 	Lon           float64 `json:"lon,omitempty"`
 	Bearing       float64 `json:"bearing,omitempty"`
@@ -25,6 +28,9 @@ type VehicleResponse struct {
 	VehicleID     string  `json:"vehicle_id"`
 	TripID        string  `json:"trip_id,omitempty"`
 	RouteID       string  `json:"route_id,omitempty"`
+	ActiveTripID  string  `json:"active_trip_id,omitempty"`
+	ActiveRouteID string  `json:"active_route_id,omitempty"`
+	ActiveShapeID string  `json:"active_shape_id,omitempty"`
 	Headsign      string  `json:"headsign,omitempty"`
 	Phase         string  `json:"phase,omitempty"`
 	Lat           float64 `json:"lat,omitempty"`

@@ -31,7 +31,7 @@ func (h *Handler) getStopOverview(ctx context.Context, req mcp.CallToolRequest) 
 
 	params := url.Values{
 		"minutesBefore": {"0"},
-		"minutesAfter":  {"30"},
+		"minutesAfter":  {"60"},
 	}
 	resp, err := h.client.ArrivalsForStop(ctx, stopID, params)
 	if err != nil {
@@ -63,7 +63,7 @@ func (h *Handler) getStopOverview(ctx context.Context, req mcp.CallToolRequest) 
 		if len(overview.Next) >= 5 {
 			continue
 		}
-		overview.Next = append(overview.Next, arrivalResponse(arrival, loc))
+		overview.Next = append(overview.Next, arrivalResponse(arrival, resp.Data.References.Trips, loc))
 	}
 
 	return toResult(withCache(dataResult(fmt.Sprintf("Overview for stop %s:\n", stopID), overview), string(resp.CacheState))), nil

@@ -23,9 +23,9 @@ func TestArrivalsHandlerTransformsFixedOBADTOs(t *testing.T) {
 					"tripHeadsign": "Downtown", "vehicleId": "test_bus", "predicted": true,
 					"scheduledArrivalTime": 1770000300000,
 					"predictedArrivalTime": 1770000360000,
-					"tripStatus": {"orientation": 90, "position": {"lat": 27.9488, "lon": -82.4582}}
+					"tripStatus": {"activeTripId":"test_active_trip","orientation": 90, "position": {"lat": 27.9488, "lon": -82.4582}}
 				}]
-			}}
+			},"references":{"trips":[{"id":"test_active_trip","routeId":"test_20","shapeId":"active_shape","tripHeadsign":"Current Route"}]}}
 		}`},
 	})
 	t.Cleanup(upstream.Close)
@@ -54,6 +54,9 @@ func TestArrivalsHandlerTransformsFixedOBADTOs(t *testing.T) {
 	if arrival.TripID != "test_trip" || arrival.RouteName != "10" || !arrival.Predicted {
 		t.Fatalf("arrival identity = %#v", arrival)
 	}
+	if arrival.ActiveTripID != "test_active_trip" || arrival.ActiveRouteID != "test_20" || arrival.ActiveShapeID != "active_shape" {
+		t.Fatalf("active vehicle identity = %#v", arrival)
+	}
 	if arrival.PredictedArrivalMS != 1_770_000_360_000 || arrival.Timezone != "America/Los_Angeles" {
 		t.Fatalf("machine-readable time contract = %#v", arrival)
 	}
@@ -65,7 +68,7 @@ func TestArrivalsHandlerTransformsFixedOBADTOs(t *testing.T) {
 	if len(requests) != 2 {
 		t.Fatalf("fixture requests = %#v, want agency timezone lookup and arrivals lookup", requests)
 	}
-	if got := requests[1].Query; got.Get("minutesBefore") != "0" || got.Get("minutesAfter") != "30" || got.Get("key") != "fixture-api-key" {
+	if got := requests[1].Query; got.Get("minutesBefore") != "0" || got.Get("minutesAfter") != "60" || got.Get("key") != "fixture-api-key" {
 		t.Fatalf("arrivals query = %#v, want validated default window and API key", got)
 	}
 }

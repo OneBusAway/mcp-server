@@ -16,7 +16,7 @@ func TestArrivalResponsePreservesMachineReadableTimes(t *testing.T) {
 		Predicted:              true,
 		PredictedArrivalTime:   1_770_000_330_000,
 		PredictedDepartureTime: 1_770_000_390_000,
-	}, time.FixedZone("America/Los_Angeles", -8*60*60))
+	}, nil, time.FixedZone("America/Los_Angeles", -8*60*60))
 
 	if arrival.Timezone != "America/Los_Angeles" {
 		t.Fatalf("timezone = %q", arrival.Timezone)

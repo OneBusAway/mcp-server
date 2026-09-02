@@ -68,6 +68,7 @@ func TestToolDescriptionsPreserveSelectionBoundaries(t *testing.T) {
 	}
 	for _, want := range []string{
 		"get_stop_overview once",
+		"every tracking refresh must use get_arrival_and_departure_for_stop",
 		"never guess a trip_id from a stop_id or route_id",
 		"refuse it without calling an unrelated tool",
 		"do not retry the request through an unrelated tool",

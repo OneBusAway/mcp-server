@@ -28,12 +28,16 @@ type RouteStopsResponse struct {
 }
 
 type RouteTripResponse struct {
-	TripID    string  `json:"trip_id"`
-	Headsign  string  `json:"headsign,omitempty"`
-	Phase     string  `json:"phase,omitempty"`
-	VehicleID string  `json:"vehicle_id,omitempty"`
-	Lat       float64 `json:"lat,omitempty"`
-	Lon       float64 `json:"lon,omitempty"`
+	TripID        string  `json:"trip_id"`
+	RouteID       string  `json:"route_id,omitempty"`
+	ActiveTripID  string  `json:"active_trip_id,omitempty"`
+	ActiveRouteID string  `json:"active_route_id,omitempty"`
+	ActiveShapeID string  `json:"active_shape_id,omitempty"`
+	Headsign      string  `json:"headsign,omitempty"`
+	Phase         string  `json:"phase,omitempty"`
+	VehicleID     string  `json:"vehicle_id,omitempty"`
+	Lat           float64 `json:"lat,omitempty"`
+	Lon           float64 `json:"lon,omitempty"`
 }
 
 type RouteScheduleDirectionResponse struct {
