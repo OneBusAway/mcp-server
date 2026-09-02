@@ -450,6 +450,12 @@ documented private TLS/authentication gateway and network controls.
 Streamable HTTP handles `SIGINT` and `SIGTERM` with a bounded graceful
 shutdown. Stdio remains owned by the launching MCP client/process lifecycle.
 
+After the listener is ready, the process prints its MCP endpoint to stderr and
+writes a structured `ready` log event. HTTP deployments expose `GET /healthz`
+and `GET /readyz` without authentication for orchestrator probes. `GET
+/metrics` requires the same bearer token as `/mcp`; it must remain private.
+See [the Phase 6 operations guide](../docs/production/phase-6-operations.md).
+
 ## Security Summary
 
 - Prefer environment or secret-manager injection for production credentials.

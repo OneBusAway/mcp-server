@@ -101,9 +101,10 @@ Sample output:
 ```
 10:42:30 [START] http://localhost:4000
 10:42:31 [CACHE] /home/ahmed/.cache/oba-mcp/cache.db
-10:42:35 [MISS]  arrivals-and-departures-for-stop          ms=41  4.8KB
-10:42:35 [HIT]   stop
-10:42:36 [L2]    route
+10:42:32 [READY] transport=streamable-http  endpoint=http://127.0.0.1:8080/mcp
+10:42:35 [MISS]  arrivals-and-departures-for-stop          ms=41  4.8KB  request_id=...
+10:42:35 [TOOL] get_arrivals_for_stop            outcome=success  cache=miss  ms=43  request_id=...
+10:42:36 [L2]    route  request_id=...
 10:42:40 [OPEN]  circuit breaker  failures=3
 10:42:55 [CLOSE] circuit breaker  after 3 failures
 ```
@@ -112,6 +113,11 @@ Sample output:
 ```sh
 OBA_LOG_FORMAT=json ./oba-mcp
 ```
+
+HTTP deployments also expose unauthenticated `/healthz` and `/readyz` probes.
+`/metrics` uses the MCP bearer token and returns privacy-safe Prometheus
+metrics. See the [Phase 6 operations guide](../docs/production/phase-6-operations.md)
+for lifecycle semantics, dashboard queries, runbooks, and retention rules.
 
 ## Docker
 
