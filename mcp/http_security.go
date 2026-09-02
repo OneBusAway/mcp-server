@@ -4,6 +4,8 @@ import (
 	"crypto/subtle"
 	"net/http"
 	"strings"
+
+	"oba-mcp/internal/requestmeta"
 )
 
 func protectedHTTPHandler(next http.Handler, allowedOrigins []string, token string) http.Handler {
@@ -27,7 +29,13 @@ func protectedHTTPHandler(next http.Handler, allowedOrigins []string, token stri
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
-		next.ServeHTTP(w, r)
+		requestID := requestmeta.NormalizeRequestID(r.Header.Get("X-Request-ID"))
+		credential := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		ctx := requestmeta.WithRequestID(r.Context(), requestID)
+		ctx = requestmeta.WithCallerHash(ctx, requestmeta.CredentialHash(credential))
+		r.Header.Set("X-Request-ID", requestID)
+		w.Header().Set("X-Request-ID", requestID)
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 

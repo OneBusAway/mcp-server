@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"oba-mcp/cachedb"
+	"oba-mcp/internal/requestmeta"
 )
 
 func clientWithTransport(transport http.RoundTripper) *OBAClient {
@@ -414,22 +415,23 @@ func TestRealtimeResponsesAreNotCached(t *testing.T) {
 	}
 }
 
-func TestRequestLogsIncludeParamsButExcludeAPIKey(t *testing.T) {
+func TestRequestLogsIncludeCorrelationButExcludeArgumentsAndAPIKey(t *testing.T) {
 	var logs bytes.Buffer
 	c := New("https://oba.test", "secret-api-key", log.New(&logs, "", 0), nil)
 	c.httpClient = &http.Client{Transport: roundTripperFunc(func(*http.Request) (*http.Response, error) {
 		return jsonResponse(http.StatusOK, `{"code":200}`), nil
 	})}
-	params := url.Values{"includeSchedule": {"false"}, "time": {"123"}}
-	if _, err := c.Get(context.Background(), "/api/where/trip-details/test_trip.json", params); err != nil {
+	params := url.Values{"includeSchedule": {"false"}, "time": {"987654"}}
+	ctx := requestmeta.WithRequestID(context.Background(), "request-123")
+	if _, err := c.Get(ctx, "/api/where/trip-details/test_trip.json", params); err != nil {
 		t.Fatalf("Get returned error: %v", err)
 	}
 	got := logs.String()
-	if !strings.Contains(got, `"params":"includeSchedule=false&time=123"`) {
-		t.Fatalf("request log does not contain encoded params: %s", got)
+	if !strings.Contains(got, `"request_id":"request-123"`) {
+		t.Fatalf("request log does not contain correlation ID: %s", got)
 	}
-	if strings.Contains(got, "secret-api-key") || strings.Contains(got, `"key"`) {
-		t.Fatalf("request log exposed API key: %s", got)
+	if strings.Contains(got, "secret-api-key") || strings.Contains(got, `"key"`) || strings.Contains(got, "includeSchedule") || strings.Contains(got, "987654") {
+		t.Fatalf("request log exposed arguments or API key: %s", got)
 	}
 }
 
@@ -605,6 +607,62 @@ func TestSuccessfulHalfOpenProbeClosesCircuit(t *testing.T) {
 	defer c.cbMu.Unlock()
 	if !c.cbOpenUntil.IsZero() || c.cbFailures != 0 || c.cbProbeInFlight {
 		t.Fatalf("circuit was not reset after successful probe: open_until=%s failures=%d probe=%t", c.cbOpenUntil, c.cbFailures, c.cbProbeInFlight)
+	}
+}
+
+type recordingObserver struct {
+	observations        []UpstreamObservation
+	circuitStates       []string
+	concurrencyOutcomes []string
+}
+
+func (o *recordingObserver) ObserveUpstream(observation UpstreamObservation) {
+	o.observations = append(o.observations, observation)
+}
+
+func (o *recordingObserver) ObserveCircuit(state string) {
+	o.circuitStates = append(o.circuitStates, state)
+}
+
+func (o *recordingObserver) ObserveConcurrencyLimit(outcome string) {
+	o.concurrencyOutcomes = append(o.concurrencyOutcomes, outcome)
+}
+
+func TestObserverReceivesSafeUpstreamMetricsWithoutLogger(t *testing.T) {
+	c := clientWithTransport(roundTripperFunc(func(*http.Request) (*http.Response, error) {
+		return jsonResponse(http.StatusOK, `{"code":200}`), nil
+	}))
+	c.logger = nil
+	observer := &recordingObserver{}
+	c.SetObserver(observer)
+	if _, err := c.Get(context.Background(), "/api/where/search/stop.json", url.Values{"input": {"private search"}}); err != nil {
+		t.Fatal(err)
+	}
+	if len(observer.observations) != 1 {
+		t.Fatalf("observations = %d, want 1", len(observer.observations))
+	}
+	observation := observer.observations[0]
+	if observation.Operation != "search/stop" || observation.Cache != "miss" {
+		t.Fatalf("observation = %#v", observation)
+	}
+}
+
+func TestObserverRecordsCancellationAtConcurrencyLimit(t *testing.T) {
+	c := clientWithTransport(roundTripperFunc(func(*http.Request) (*http.Response, error) {
+		t.Fatal("cancelled request should not reach upstream")
+		return nil, nil
+	}))
+	observer := &recordingObserver{}
+	c.SetObserver(observer)
+	for range maxConcurrentCalls {
+		c.upstreamSem <- struct{}{}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := c.fetch(ctx, "/api/where/current-time.json", url.Values{}, "current-time")
+	assertUpstreamCode(t, err, ErrorCancelled)
+	if len(observer.concurrencyOutcomes) != 1 || observer.concurrencyOutcomes[0] != "wait_cancelled" {
+		t.Fatalf("concurrency outcomes = %#v, want wait_cancelled", observer.concurrencyOutcomes)
 	}
 }
 

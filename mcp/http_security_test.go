@@ -3,6 +3,7 @@ package main
 import (
 	"net/http"
 	"net/http/httptest"
+	"oba-mcp/internal/requestmeta"
 	"testing"
 )
 
@@ -31,5 +32,51 @@ func TestProtectedHTTPHandler(t *testing.T) {
 				t.Fatalf("status = %d, want %d", res.Code, tt.want)
 			}
 		})
+	}
+}
+
+func TestProtectedHTTPHandlerPropagatesSafeRequestMetadata(t *testing.T) {
+	var requestID string
+	var callerHash string
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestID = requestmeta.RequestID(r.Context())
+		callerHash = requestmeta.CallerHash(r.Context())
+		w.WriteHeader(http.StatusNoContent)
+	})
+	handler := protectedHTTPHandler(next, nil, "gateway-token")
+	request := httptest.NewRequest(http.MethodPost, "http://localhost/mcp", nil)
+	request.Header.Set("Authorization", "Bearer gateway-token")
+	request.Header.Set("X-Request-ID", "gateway.request-123")
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if requestID != "gateway.request-123" {
+		t.Fatalf("request ID = %q, want gateway.request-123", requestID)
+	}
+	if response.Header().Get("X-Request-ID") != requestID {
+		t.Fatalf("response request ID = %q, want %q", response.Header().Get("X-Request-ID"), requestID)
+	}
+	if callerHash == "" || callerHash == "gateway-token" {
+		t.Fatalf("caller hash = %q", callerHash)
+	}
+}
+
+func TestProtectedHTTPHandlerReplacesUnsafeRequestID(t *testing.T) {
+	var requestID string
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestID = requestmeta.RequestID(r.Context())
+		w.WriteHeader(http.StatusNoContent)
+	})
+	handler := protectedHTTPHandler(next, nil, "gateway-token")
+	request := httptest.NewRequest(http.MethodPost, "http://localhost/mcp", nil)
+	request.Header.Set("Authorization", "Bearer gateway-token")
+	request.Header.Set("X-Request-ID", "unsafe request id")
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if requestID == "" || requestID == "unsafe request id" {
+		t.Fatalf("unsafe request ID was not replaced: %q", requestID)
 	}
 }

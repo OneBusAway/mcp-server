@@ -35,28 +35,21 @@ func (pw *PrettyWriter) Write(p []byte) (int, error) {
 	event, _ := m["event"].(string)
 
 	switch event {
-	case "req":
+	case "upstream":
 		op, _ := m["op"].(string)
 		cache, _ := m["cache"].(string)
 		ms, _ := m["ms"].(float64)
 		bytes, _ := m["bytes"].(float64)
-		params, _ := m["params"].(string)
-		errMsg, _ := m["error"].(string)
 		errCode, _ := m["error_code"].(string)
-		circuit, _ := m["circuit"].(string)
+		requestID, _ := m["request_id"].(string)
 
 		switch {
-		case errMsg != "":
-			fmt.Fprintf(pw.w, "%s [ERR]  %-42s %s%s\n", ts, op, errMsg, fmtParams(params))
 		case errCode != "":
-			fmt.Fprintf(pw.w, "%s [ERR]  %-42s %s%s\n", ts, op, errCode, fmtParams(params))
-		case circuit == "open":
-			retry, _ := m["retry_in_sec"].(float64)
-			fmt.Fprintf(pw.w, "%s [SKIP] %-42s circuit open (retry in %.0fs)\n", ts, op, retry)
+			fmt.Fprintf(pw.w, "%s [ERR]  %-42s %s  request_id=%s\n", ts, op, errCode, requestID)
 		case cache == "hit":
-			fmt.Fprintf(pw.w, "%s [HIT]  %s%s\n", ts, op, fmtParams(params))
+			fmt.Fprintf(pw.w, "%s [HIT]  %s  request_id=%s\n", ts, op, requestID)
 		case cache == "l2-hit":
-			fmt.Fprintf(pw.w, "%s [L2]   %s%s\n", ts, op, fmtParams(params))
+			fmt.Fprintf(pw.w, "%s [L2]   %s  request_id=%s\n", ts, op, requestID)
 		default:
 			extra := ""
 			if ms > 0 {
@@ -68,8 +61,16 @@ func (pw *PrettyWriter) Write(p []byte) (int, error) {
 				}
 				extra += fmtBytes(bytes)
 			}
-			fmt.Fprintf(pw.w, "%s [MISS] %-42s %s%s\n", ts, op, extra, fmtParams(params))
+			fmt.Fprintf(pw.w, "%s [MISS] %-42s %s  request_id=%s\n", ts, op, extra, requestID)
 		}
+
+	case "tool":
+		tool, _ := m["tool"].(string)
+		outcome, _ := m["outcome"].(string)
+		cache, _ := m["cache"].(string)
+		requestID, _ := m["request_id"].(string)
+		ms, _ := m["ms"].(float64)
+		fmt.Fprintf(pw.w, "%s [TOOL] %-32s outcome=%s  cache=%s  ms=%.0f  request_id=%s\n", ts, tool, outcome, cache, ms, requestID)
 
 	case "circuit":
 		state, _ := m["state"].(string)
@@ -95,22 +96,25 @@ func (pw *PrettyWriter) Write(p []byte) (int, error) {
 			fmt.Fprintf(pw.w, "%s [CACHE ERR] %s\n", ts, e)
 		}
 
-	case "http":
-		addr, _ := m["addr"].(string)
-		fmt.Fprintf(pw.w, "%s [HTTP] addr=%s\n", ts, addr)
+	case "ready":
+		transport, _ := m["transport"].(string)
+		endpoint, _ := m["endpoint"].(string)
+		fmt.Fprintf(pw.w, "%s [READY] transport=%s  endpoint=%s\n", ts, transport, endpoint)
+
+	case "draining":
+		timeoutMS, _ := m["timeout_ms"].(float64)
+		fmt.Fprintf(pw.w, "%s [DRAIN] timeout_ms=%.0f\n", ts, timeoutMS)
+
+	case "panic":
+		tool, _ := m["tool"].(string)
+		requestID, _ := m["request_id"].(string)
+		fmt.Fprintf(pw.w, "%s [PANIC] tool=%s  request_id=%s\n", ts, tool, requestID)
 
 	default:
 		fmt.Fprintln(pw.w, line)
 	}
 
 	return len(p), nil
-}
-
-func fmtParams(params string) string {
-	if params == "" {
-		return ""
-	}
-	return "  params=" + params
 }
 
 func fmtBytes(b float64) string {

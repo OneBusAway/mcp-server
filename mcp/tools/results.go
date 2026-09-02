@@ -33,6 +33,7 @@ type ResponseMeta struct {
 	GeneratedAtMS int64  `json:"generated_at_ms"`
 	Truncated     bool   `json:"truncated"`
 	Cache         string `json:"cache,omitempty"`
+	RequestID     string `json:"request_id,omitempty"`
 }
 
 // SuccessEnvelope is the canonical machine-readable shape of a successful tool result.
@@ -132,6 +133,22 @@ func structuredErrorResult(response ErrorEnvelope) *mcp.CallToolResult {
 	result := mcp.NewToolResultStructured(response, response.Message)
 	result.IsError = true
 	return result
+}
+
+// AttachRequestID adds transport correlation metadata without changing the
+// typed data contract returned by an individual tool.
+func AttachRequestID(result *mcp.CallToolResult, requestID string) {
+	if result == nil || requestID == "" {
+		return
+	}
+	switch response := result.StructuredContent.(type) {
+	case SuccessEnvelope[any]:
+		response.Meta.RequestID = requestID
+		result.StructuredContent = response
+	case ErrorEnvelope:
+		response.RequestID = requestID
+		result.StructuredContent = response
+	}
 }
 
 func publicError(message string) ErrorEnvelope {
