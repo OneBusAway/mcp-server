@@ -26,7 +26,7 @@ import (
 
 func TestStdioTransportInitializeAndListTools(t *testing.T) {
 	obaClient := client.New("http://example.invalid", "fixture-api-key", nil, nil)
-	mcpServer := server.NewMCPServer("OBA Transit Assistant", "1.0.0", server.WithToolCapabilities(true))
+	mcpServer := newApplicationServer(log.New(io.Discard, "", 0), newOperationalMetrics())
 	tools.RegisterProfile(mcpServer, obaClient, tools.ToolProfileAll)
 	stdioServer := server.NewStdioServer(mcpServer)
 	stdioServer.SetErrorLogger(log.New(io.Discard, "", 0))
@@ -115,7 +115,7 @@ func TestHTTPTransportInitializeListAndCallTool(t *testing.T) {
 	t.Cleanup(upstream.Close)
 
 	obaClient := client.New(upstream.URL, "fixture-api-key", nil, nil)
-	mcpServer := server.NewMCPServer("OBA Transit Assistant", "1.0.0", server.WithToolCapabilities(true))
+	mcpServer := newApplicationServer(log.New(io.Discard, "", 0), newOperationalMetrics())
 	tools.RegisterProfile(mcpServer, obaClient, tools.ToolProfileAll)
 
 	mux := http.NewServeMux()
@@ -177,6 +177,9 @@ func TestHTTPTransportInitializeListAndCallTool(t *testing.T) {
 	if response.Meta.Cache != string(client.CacheMiss) {
 		t.Fatalf("cache state = %q, want miss", response.Meta.Cache)
 	}
+	if response.Meta.RequestID == "" {
+		t.Fatal("structured get_stop response omitted request_id")
+	}
 
 	requests := upstream.Requests()
 	if len(requests) != 1 || requests[0].Query.Get("key") != "fixture-api-key" {
@@ -210,9 +213,12 @@ func TestHTTPTransportStartsAndShutsDown(t *testing.T) {
 		}),
 	}
 	ctx, cancel := context.WithCancel(context.Background())
+	state := &operationalState{}
+	state.setReady(true)
+	var lifecycleLogs strings.Builder
 	result := make(chan error, 1)
 	go func() {
-		result <- serveHTTPListener(ctx, httpServer, listener)
+		result <- serveHTTPListener(ctx, httpServer, listener, state, log.New(&lifecycleLogs, "", 0))
 	}()
 
 	response, err := http.Get("http://" + listener.Addr().String())
@@ -234,6 +240,12 @@ func TestHTTPTransportStartsAndShutsDown(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("Streamable HTTP server did not shut down within 5s")
+	}
+	if state.ready.Load() {
+		t.Fatal("readiness remained true after shutdown began")
+	}
+	if !strings.Contains(lifecycleLogs.String(), `"event":"draining"`) {
+		t.Fatalf("shutdown log omitted draining event: %s", lifecycleLogs.String())
 	}
 }
 

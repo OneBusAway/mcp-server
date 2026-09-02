@@ -73,6 +73,11 @@ func main() {
 		MaxAge:     7, // days
 		Compress:   true,
 	}
+	defer func() {
+		if err := jack.Close(); err != nil {
+			log.Printf("close log writer: %v", err)
+		}
+	}()
 	var logDest io.Writer = jack
 	if cfg.Logging.Format != "json" {
 		logDest = logger.NewPretty(jack)
@@ -92,32 +97,41 @@ func main() {
 		appLogger.Printf(`{"event":"cache","path":%q}`, cfg.Cache.Path)
 	}
 
+	metrics := newOperationalMetrics()
 	obaClient := client.New(cfg.Upstream.BaseURL, cfg.Upstream.APIKey, appLogger, db)
+	obaClient.SetObserver(metrics)
 	toolProfile, err := tools.ParseToolProfile(cfg.MCP.ToolProfile)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	s := server.NewMCPServer("OBA Transit Assistant", "1.0.0",
-		server.WithToolCapabilities(true),
-		server.WithPromptCapabilities(true),
-	)
+	s := newApplicationServer(appLogger, metrics)
 	tools.RegisterProfile(s, obaClient, toolProfile)
 	tools.RegisterPrompts(s)
 
 	appLogger.Printf(`{"event":"start","target":%q,"tool_profile":%q}`, cfg.Upstream.BaseURL, toolProfile)
 
 	if cfg.MCP.Transport == appconfig.TransportStreamableHTTP {
-		if err := serveHTTP(ctx, s, appLogger, cfg.HTTP); err != nil {
+		if err := serveHTTP(ctx, s, appLogger, cfg.HTTP, metrics, os.Stderr); err != nil {
 			log.Fatal(err)
 		}
 	} else {
+		announceReady(appLogger, os.Stderr, string(appconfig.TransportStdio), "")
 		if err := server.ServeStdio(s); err != nil {
 			log.Fatal(err)
 		}
 	}
 
 	appLogger.Printf(`{"event":"stop"}`)
+}
+
+func newApplicationServer(appLogger *log.Logger, metrics *operationalMetrics) *server.MCPServer {
+	return server.NewMCPServer("OBA Transit Assistant", "1.0.0",
+		server.WithToolCapabilities(true),
+		server.WithPromptCapabilities(true),
+		server.WithToolHandlerMiddleware(toolObservabilityMiddleware(appLogger, metrics)),
+		server.WithToolHandlerMiddleware(safeRecoveryMiddleware(appLogger)),
+	)
 }
 
 func prepareLogPath(path string) error {
@@ -145,11 +159,11 @@ func openPersistentCache(path string) (*cachedb.Queries, *sql.DB, error) {
 	return queries, database, nil
 }
 
-func serveHTTP(ctx context.Context, mcpServer *server.MCPServer, appLogger *log.Logger, cfg appconfig.HTTPConfig) error {
+func serveHTTP(ctx context.Context, mcpServer *server.MCPServer, appLogger *log.Logger, cfg appconfig.HTTPConfig, metrics *operationalMetrics, statusWriter io.Writer) error {
 	addr := net.JoinHostPort(cfg.BindAddress, fmt.Sprintf("%d", cfg.Port))
 	httpHandler := newProtectedMCPHTTPHandler(mcpServer, cfg.AllowedOrigins, cfg.AuthToken)
-	mux := http.NewServeMux()
-	mux.Handle("/mcp", httpHandler)
+	state := &operationalState{}
+	mux := newHTTPMux(httpHandler, state, metrics, cfg.AuthToken)
 	httpServer := &http.Server{
 		Addr:              addr,
 		Handler:           mux,
@@ -161,11 +175,23 @@ func serveHTTP(ctx context.Context, mcpServer *server.MCPServer, appLogger *log.
 	if err != nil {
 		return fmt.Errorf("listen on %s: %w", addr, err)
 	}
-	appLogger.Printf(`{"event":"http","addr":%q}`, addr)
-	return serveHTTPListener(ctx, httpServer, listener)
+	endpoint := "http://" + listener.Addr().String() + "/mcp"
+	state.setReady(true)
+	defer state.setReady(false)
+	announceReady(appLogger, statusWriter, string(appconfig.TransportStreamableHTTP), endpoint)
+	return serveHTTPListener(ctx, httpServer, listener, state, appLogger)
 }
 
-func serveHTTPListener(ctx context.Context, httpServer *http.Server, listener net.Listener) error {
+func newHTTPMux(mcpHandler http.Handler, state *operationalState, metrics *operationalMetrics, authToken string) *http.ServeMux {
+	mux := http.NewServeMux()
+	mux.Handle("/mcp", mcpHandler)
+	mux.HandleFunc("/healthz", state.healthHandler)
+	mux.HandleFunc("/readyz", state.readinessHandler)
+	mux.Handle("/metrics", protectedHTTPHandler(http.HandlerFunc(metrics.handler), nil, authToken))
+	return mux
+}
+
+func serveHTTPListener(ctx context.Context, httpServer *http.Server, listener net.Listener, state *operationalState, appLogger *log.Logger) error {
 	serveResult := make(chan error, 1)
 	go func() {
 		serveResult <- httpServer.Serve(listener)
@@ -178,9 +204,13 @@ func serveHTTPListener(ctx context.Context, httpServer *http.Server, listener ne
 		}
 		return err
 	case <-ctx.Done():
+		state.setReady(false)
+		appLogger.Printf(`{"event":"draining","timeout_ms":5000}`)
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := httpServer.Shutdown(shutdownCtx); err != nil {
+			_ = httpServer.Close()
+			<-serveResult
 			return fmt.Errorf("shut down Streamable HTTP server: %w", err)
 		}
 		err := <-serveResult
@@ -199,8 +229,8 @@ func newProtectedMCPHTTPHandler(mcpServer *server.MCPServer, origins []string, t
 		server.WithStreamableHTTPCORS(
 			server.WithCORSAllowedOrigins(origins...),
 			server.WithCORSAllowedMethods(http.MethodGet, http.MethodPost, http.MethodDelete, http.MethodOptions),
-			server.WithCORSAllowedHeaders("Content-Type", "Mcp-Session-Id", "Last-Event-ID", "Authorization"),
-			server.WithCORSExposedHeaders("Mcp-Session-Id"),
+			server.WithCORSAllowedHeaders("Content-Type", "Mcp-Session-Id", "Last-Event-ID", "Authorization", "X-Request-ID"),
+			server.WithCORSExposedHeaders("Mcp-Session-Id", "X-Request-ID"),
 			server.WithCORSMaxAge(600),
 		),
 	)
