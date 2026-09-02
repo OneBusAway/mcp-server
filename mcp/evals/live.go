@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -26,6 +27,7 @@ const (
 	defaultMaxToolCalls  = 8
 	defaultMaxTokens     = 2048
 	maxModelResponseSize = 4 << 20
+	maxModelErrorSize    = 16 << 10
 
 	runnerErrorCaseExecution  = "CASE_EXECUTION_FAILED"
 	runnerErrorModelRequest   = "MODEL_REQUEST_FAILED"
@@ -52,13 +54,12 @@ type LiveConfig struct {
 }
 
 type chatCompletionRequest struct {
-	Model             string        `json:"model"`
-	Messages          []chatMessage `json:"messages"`
-	Tools             []chatTool    `json:"tools"`
-	ToolChoice        string        `json:"tool_choice"`
-	ParallelToolCalls bool          `json:"parallel_tool_calls"`
-	Temperature       float64       `json:"temperature"`
-	MaxTokens         int           `json:"max_tokens"`
+	Model       string        `json:"model"`
+	Messages    []chatMessage `json:"messages"`
+	Tools       []chatTool    `json:"tools"`
+	ToolChoice  string        `json:"tool_choice"`
+	Temperature *float64      `json:"temperature,omitempty"`
+	MaxTokens   int           `json:"max_tokens"`
 }
 
 type chatMessage struct {
@@ -94,6 +95,56 @@ type chatCompletionResponse struct {
 	Choices []struct {
 		Message chatMessage `json:"message"`
 	} `json:"choices"`
+}
+
+type modelErrorResponse struct {
+	Error modelErrorDetails `json:"error"`
+}
+
+type modelErrorDetails struct {
+	Status  string                  `json:"status"`
+	Type    string                  `json:"type"`
+	Message string                  `json:"message"`
+	Details []modelErrorDetailGroup `json:"details"`
+}
+
+type modelErrorDetailGroup struct {
+	FieldViolations []modelErrorFieldViolation `json:"fieldViolations"`
+}
+
+type modelErrorFieldViolation struct {
+	Description string `json:"description"`
+}
+
+var knownProviderErrorIdentifiers = map[string]struct{}{
+	"ABORTED":               {},
+	"AUTHENTICATION_ERROR":  {},
+	"CANCELLED":             {},
+	"DEADLINE_EXCEEDED":     {},
+	"FORBIDDEN":             {},
+	"INTERNAL":              {},
+	"INVALID_ARGUMENT":      {},
+	"INVALID_REQUEST_ERROR": {},
+	"MODEL_NOT_FOUND":       {},
+	"NOT_FOUND":             {},
+	"PERMISSION_DENIED":     {},
+	"RATE_LIMIT_ERROR":      {},
+	"RESOURCE_EXHAUSTED":    {},
+	"SERVER_ERROR":          {},
+	"UNAUTHENTICATED":       {},
+	"UNAVAILABLE":           {},
+}
+
+var unknownJSONFieldPattern = regexp.MustCompile(`Unknown name "([A-Za-z][A-Za-z0-9_]*)"`)
+
+var knownModelRequestFields = map[string]struct{}{
+	"max_tokens":          {},
+	"messages":            {},
+	"model":               {},
+	"parallel_tool_calls": {},
+	"temperature":         {},
+	"tool_choice":         {},
+	"tools":               {},
 }
 
 // RunOpenAICompatible asks an OpenAI-compatible chat-completions endpoint to
@@ -282,15 +333,18 @@ func toolInputSchema(tool mcp.Tool) (json.RawMessage, error) {
 }
 
 func completeChat(ctx context.Context, endpoint string, config LiveConfig, messages []chatMessage, definitions []chatTool) (chatMessage, error) {
-	payload, err := json.Marshal(chatCompletionRequest{
-		Model:             config.Profile.Model,
-		Messages:          messages,
-		Tools:             definitions,
-		ToolChoice:        "auto",
-		ParallelToolCalls: false,
-		Temperature:       0,
-		MaxTokens:         config.MaxTokens,
-	})
+	chatRequest := chatCompletionRequest{
+		Model:      config.Profile.Model,
+		Messages:   messages,
+		Tools:      definitions,
+		ToolChoice: "auto",
+		MaxTokens:  config.MaxTokens,
+	}
+	if !strings.EqualFold(config.Profile.Provider, "google-gemini") {
+		temperature := 0.0
+		chatRequest.Temperature = &temperature
+	}
+	payload, err := json.Marshal(chatRequest)
 	if err != nil {
 		return chatMessage{}, fmt.Errorf("encode model request: %w", err)
 	}
@@ -311,7 +365,7 @@ func completeChat(ctx context.Context, endpoint string, config LiveConfig, messa
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return chatMessage{}, fmt.Errorf("model endpoint returned HTTP %d", response.StatusCode)
+		return chatMessage{}, modelEndpointHTTPError(response.StatusCode, response.Body)
 	}
 	body, err := io.ReadAll(io.LimitReader(response.Body, maxModelResponseSize+1))
 	if err != nil {
@@ -328,6 +382,74 @@ func completeChat(ctx context.Context, endpoint string, config LiveConfig, messa
 		return chatMessage{}, errors.New("model response contains no choices")
 	}
 	return completion.Choices[0].Message, nil
+}
+
+// modelEndpointHTTPError provides a narrow terminal diagnostic without copying
+// arbitrary provider text into output or transcripts. Provider messages can
+// reflect request content, while a recognized status/type identifier is enough
+// to distinguish model availability, authentication, and rate-limit failures.
+func modelEndpointHTTPError(statusCode int, body io.Reader) error {
+	contents, err := io.ReadAll(io.LimitReader(body, maxModelErrorSize+1))
+	if err != nil || len(contents) > maxModelErrorSize {
+		return fmt.Errorf("model endpoint returned HTTP %d", statusCode)
+	}
+	identifier, field := providerErrorDiagnostic(contents)
+	if identifier == "" {
+		return fmt.Errorf("model endpoint returned HTTP %d", statusCode)
+	}
+	if field != "" {
+		return fmt.Errorf("model endpoint returned HTTP %d (%s; invalid field: %s)", statusCode, identifier, field)
+	}
+	return fmt.Errorf("model endpoint returned HTTP %d (%s)", statusCode, identifier)
+}
+
+func providerErrorDiagnostic(body []byte) (string, string) {
+	var response modelErrorResponse
+	if json.Unmarshal(body, &response) == nil {
+		if identifier, field := errorDetailsDiagnostic(response.Error); identifier != "" {
+			return identifier, field
+		}
+	}
+
+	var responses []modelErrorResponse
+	if json.Unmarshal(body, &responses) != nil {
+		return "", ""
+	}
+	for _, response := range responses {
+		if identifier, field := errorDetailsDiagnostic(response.Error); identifier != "" {
+			return identifier, field
+		}
+	}
+	return "", ""
+}
+
+func errorDetailsDiagnostic(details modelErrorDetails) (string, string) {
+	for _, candidate := range []string{details.Status, details.Type} {
+		identifier := strings.ToUpper(candidate)
+		if _, ok := knownProviderErrorIdentifiers[identifier]; ok {
+			return identifier, knownRequestField(details)
+		}
+	}
+	return "", ""
+}
+
+func knownRequestField(details modelErrorDetails) string {
+	messages := []string{details.Message}
+	for _, group := range details.Details {
+		for _, violation := range group.FieldViolations {
+			messages = append(messages, violation.Description)
+		}
+	}
+	for _, message := range messages {
+		match := unknownJSONFieldPattern.FindStringSubmatch(message)
+		if len(match) != 2 {
+			continue
+		}
+		if _, ok := knownModelRequestFields[match[1]]; ok {
+			return match[1]
+		}
+	}
+	return ""
 }
 
 func observedModelCall(call chatToolCall) ObservedCall {

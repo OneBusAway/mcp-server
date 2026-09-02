@@ -2,12 +2,14 @@ package evals
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"oba-mcp/client"
 	"oba-mcp/tools"
@@ -125,6 +127,48 @@ func TestChatCompletionsEndpointValidation(t *testing.T) {
 				t.Fatalf("endpoint = %q, want %q", got, test.want)
 			}
 		})
+	}
+}
+
+func TestChatCompletionRequestOmitsProviderSpecificParallelToolCalls(t *testing.T) {
+	payload, err := json.Marshal(chatCompletionRequest{
+		Model:      "fixture-model",
+		Messages:   []chatMessage{{Role: "user", Content: "test"}},
+		Tools:      []chatTool{},
+		ToolChoice: "auto",
+	})
+	if err != nil {
+		t.Fatalf("marshal chat completion request: %v", err)
+	}
+	if strings.Contains(string(payload), "parallel_tool_calls") {
+		t.Fatalf("request includes provider-specific parallel_tool_calls: %s", payload)
+	}
+}
+
+func TestCompleteChatOmitsTemperatureForGoogleGemini(t *testing.T) {
+	var payload json.RawMessage
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var err error
+		payload, err = io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "read request", http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"done"}}]}`))
+	}))
+	t.Cleanup(provider.Close)
+
+	_, err := completeChat(t.Context(), provider.URL, LiveConfig{
+		Profile:    TranscriptProfile{Provider: "google-gemini", Model: "gemini-3.6-flash"},
+		Timeout:    time.Second,
+		HTTPClient: provider.Client(),
+	}, nil, nil)
+	if err != nil {
+		t.Fatalf("completeChat: %v", err)
+	}
+	if strings.Contains(string(payload), "temperature") {
+		t.Fatalf("Google request includes unsupported temperature parameter: %s", payload)
 	}
 }
 
@@ -272,5 +316,76 @@ func TestRunOpenAICompatiblePreservesPartialTranscript(t *testing.T) {
 	}
 	if runnerError := transcript.Cases[1].RunnerError; runnerError == nil || runnerError.Code != runnerErrorModelRequest {
 		t.Fatalf("failed case runner error = %#v, want %s", runnerError, runnerErrorModelRequest)
+	}
+}
+
+func TestCompleteChatReportsAllowlistedProviderErrorIdentifier(t *testing.T) {
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"error":{"status":"NOT_FOUND","message":"model and request data must stay private"}}`))
+	}))
+	t.Cleanup(provider.Close)
+
+	_, err := completeChat(t.Context(), provider.URL, LiveConfig{
+		Profile:    TranscriptProfile{Model: "fixture-model"},
+		Timeout:    time.Second,
+		HTTPClient: provider.Client(),
+	}, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "HTTP 404 (NOT_FOUND)") {
+		t.Fatalf("completeChat error = %v, want allowlisted provider identifier", err)
+	}
+	if strings.Contains(err.Error(), "request data") {
+		t.Fatalf("completeChat error leaked provider message: %v", err)
+	}
+}
+
+func TestCompleteChatReportsAllowlistedProviderIdentifierFromArray(t *testing.T) {
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`[{"error":{"status":"INVALID_ARGUMENT","message":"must not be exposed"}}]`))
+	}))
+	t.Cleanup(provider.Close)
+
+	_, err := completeChat(t.Context(), provider.URL, LiveConfig{
+		Profile:    TranscriptProfile{Model: "fixture-model"},
+		Timeout:    time.Second,
+		HTTPClient: provider.Client(),
+	}, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "HTTP 400 (INVALID_ARGUMENT)") {
+		t.Fatalf("completeChat error = %v, want allowlisted array identifier", err)
+	}
+}
+
+func TestCompleteChatReportsKnownRejectedRequestField(t *testing.T) {
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`[{"error":{"status":"INVALID_ARGUMENT","message":"Invalid JSON payload received. Unknown name \"max_tokens\"."}}]`))
+	}))
+	t.Cleanup(provider.Close)
+
+	_, err := completeChat(t.Context(), provider.URL, LiveConfig{
+		Profile:    TranscriptProfile{Model: "fixture-model"},
+		Timeout:    time.Second,
+		HTTPClient: provider.Client(),
+	}, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "INVALID_ARGUMENT; invalid field: max_tokens") {
+		t.Fatalf("completeChat error = %v, want safe rejected field diagnostic", err)
+	}
+}
+
+func TestCompleteChatSuppressesUnknownProviderErrorIdentifier(t *testing.T) {
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":{"status":"UNTRUSTED_DETAIL","message":"must not be exposed"}}`))
+	}))
+	t.Cleanup(provider.Close)
+
+	_, err := completeChat(t.Context(), provider.URL, LiveConfig{
+		Profile:    TranscriptProfile{Model: "fixture-model"},
+		Timeout:    time.Second,
+		HTTPClient: provider.Client(),
+	}, nil, nil)
+	if err == nil || err.Error() != "model endpoint returned HTTP 400" {
+		t.Fatalf("completeChat error = %v, want HTTP-only diagnostic", err)
 	}
 }

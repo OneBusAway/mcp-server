@@ -13,6 +13,7 @@
 # Optional environment variables:
 #   EVAL_SUITE          Suite path (default: evals/scenarios-v1.json)
 #   EVAL_API_KEY        API key for hosted providers — never logged or committed
+#   EVAL_TIMEOUT        Per-model-request timeout (default: 60s)
 #
 # Flags:
 #   --full-prompt       Inject the comprehensive transit_assistant system prompt
@@ -51,6 +52,7 @@ cd "$(dirname "$0")/.."
 
 FULL_PROMPT=false
 SUITE="${EVAL_SUITE:-evals/scenarios-v1.json}"
+TIMEOUT="${EVAL_TIMEOUT:-60s}"
 OUT=""
 
 while [[ $# -gt 0 ]]; do
@@ -91,6 +93,7 @@ CMD=(
   -model   "$EVAL_MODEL"
   -provider "${EVAL_PROVIDER}"
   -profile-id "${PROFILE}"
+  -timeout "$TIMEOUT"
 )
 
 # Attach full system prompt when requested
@@ -113,6 +116,7 @@ echo "│ suite     $SUITE"
 echo "│ mode      $MODE"
 echo "│ model     ${EVAL_MODEL} via ${EVAL_PROVIDER}"
 echo "│ profile   ${PROFILE}"
+echo "│ timeout   ${TIMEOUT} per model request"
 echo "│ output    $OUT"
 echo "└─────────────────────────────────────────────────────"
 echo ""
