@@ -1,0 +1,23 @@
+# Never send local configuration, credentials, generated binaries, or test
+# artifacts to the Docker daemon as part of an MCP image build.
+.git
+.gitignore
+.env
+.env.*
+config.json
+config.local.json
+oba-mcp
+tmp/
+*.db
+*.db-shm
+*.db-wal
+*.log
+*_test.go
+evals/transcripts/
+evals/results/
+
+# Documentation and local developer tooling are not needed to compile the
+# runtime binary.
+*.md
+.air.toml
+opencode.json

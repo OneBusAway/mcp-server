@@ -24,6 +24,17 @@ services:
     volumes:
       - oba-cache:/var/cache/oba-mcp
       - oba-logs:/var/log/oba-mcp
+    init: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:8080/readyz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     restart: unless-stopped
     depends_on:
       maglev:
@@ -35,12 +46,17 @@ services:
     build: ./ui
     profiles: ["ui"]
     ports:
-      - "${OBA_UI_PORT:-3000}:3000"
+      - "127.0.0.1:${OBA_UI_PORT:-3000}:3000"
     environment:
       # Server-only MCP connection. Do not expose this token to browsers.
       OBA_MCP_URL: http://oba-mcp:8080
       OBA_MCP_AUTH_TOKEN: ${OBA_HTTP_AUTH_TOKEN:?OBA_HTTP_AUTH_TOKEN is required}
     restart: unless-stopped
+    init: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     depends_on:
       - oba-mcp
 

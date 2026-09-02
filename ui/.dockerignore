@@ -1,0 +1,13 @@
+# Build from the lockfile and source only. Local settings and generated output
+# must not become part of either the builder context or the production image.
+.git
+.gitignore
+.env
+.env.*
+node_modules/
+build/
+.svelte-kit/
+coverage/
+playwright-report/
+test-results/
+tests/

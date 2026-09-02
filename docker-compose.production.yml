@@ -1,0 +1,68 @@
+# Production deployment overlay for the private MCP service.
+#
+# Usage:
+#   docker compose -f docker-compose.production.yml up -d
+#
+# It intentionally does not publish a port or include the web UI. Put a
+# TLS/authentication gateway on the same private network, and deploy the UI
+# only after its session, provider-credential, and abuse-control design is
+# complete. Use immutable image references (ideally digest-pinned) in the
+# environment variables below.
+services:
+  oba-mcp:
+    image: ${OBA_MCP_IMAGE:?set OBA_MCP_IMAGE to an immutable image reference}
+    pull_policy: always
+    read_only: true
+    init: true
+    user: "10001:10001"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+    environment:
+      OBA_BASE_URL: ${OBA_BASE_URL:?OBA_BASE_URL is required}
+      OBA_TRANSPORT: streamable-http
+      OBA_HTTP_BIND_ADDR: 0.0.0.0
+      OBA_PORT: "8080"
+      OBA_ALLOWED_ORIGINS: ${OBA_ALLOWED_ORIGINS:?OBA_ALLOWED_ORIGINS is required}
+      OBA_LOG: /var/log/oba-mcp/oba-mcp.log
+      OBA_CACHE: /var/cache/oba-mcp/cache.db
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        export OBA_API_KEY="$$(cat /run/secrets/oba_api_key)"
+        export OBA_HTTP_AUTH_TOKEN="$$(cat /run/secrets/oba_http_auth_token)"
+        exec /app/oba-mcp
+    secrets:
+      - oba_api_key
+      - oba_http_auth_token
+    volumes:
+      - oba-cache:/var/cache/oba-mcp
+      - oba-logs:/var/log/oba-mcp
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:8080/readyz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: ${OBA_MCP_CPU_LIMIT:-1.0}
+          memory: ${OBA_MCP_MEMORY_LIMIT:-512m}
+        reservations:
+          memory: ${OBA_MCP_MEMORY_RESERVATION:-128m}
+    restart: unless-stopped
+
+secrets:
+  oba_api_key:
+    file: ${OBA_API_KEY_FILE:?set OBA_API_KEY_FILE to a readable secret file}
+  oba_http_auth_token:
+    file: ${OBA_HTTP_AUTH_TOKEN_FILE:?set OBA_HTTP_AUTH_TOKEN_FILE to a readable secret file}
+
+volumes:
+  oba-cache:
+  oba-logs:
