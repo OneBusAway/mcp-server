@@ -57,14 +57,26 @@ CRITICAL RULES:
 // passenger UI has no use for them and their presence increases token cost
 // and tool-selection ambiguity.
 const RIDER_TOOLS = new Set([
-	'get_agencies', 'get_agency',
-	'get_stop', 'search_stops', 'find_stops_near_location', 'get_stop_overview',
+	'get_agencies',
+	'get_agency',
+	'get_stop',
+	'search_stops',
+	'find_stops_near_location',
+	'get_stop_overview',
 	'get_stops_for_agency',
-	'get_arrivals_for_stop', 'get_arrivals_for_location', 'get_arrival_and_departure_for_stop',
+	'get_arrivals_for_stop',
+	'get_arrivals_for_location',
+	'get_arrival_and_departure_for_stop',
 	'get_stop_schedule',
-	'get_route', 'search_routes', 'get_routes_for_agency', 'get_routes_for_location',
+	'get_route',
+	'search_routes',
+	'get_routes_for_agency',
+	'get_routes_for_location',
 	'get_stops_for_route',
-	'get_trip_details', 'get_trip_for_vehicle', 'get_trips_for_route', 'get_vehicles_for_agency',
+	'get_trip_details',
+	'get_trip_for_vehicle',
+	'get_trips_for_route',
+	'get_vehicles_for_agency',
 	'get_current_time',
 ]);
 
@@ -101,7 +113,8 @@ function getProviderCfg(id) {
 
 function isArrivalFocusedRequest(messages) {
 	const latestUserText = [...messages].reverse().find((m) => m.role === 'user')?.content ?? '';
-	const asksForArrivals = /\b(arrivals?|arriv(?:e|ing)|upcoming|next\s+(?:bus|buses)|incoming)\b/i.test(latestUserText);
+	const asksForArrivals =
+		/\b(arrivals?|arriv(?:e|ing)|upcoming|next\s+(?:bus|buses)|incoming)\b/i.test(latestUserText);
 	const identifiesStop = /\b[\w-]+_\d+\b/.test(latestUserText) || /\s[@&]\s/.test(latestUserText);
 	return asksForArrivals && identifiesStop;
 }
@@ -111,14 +124,17 @@ export async function POST({ request, fetch }) {
 	const body = await request.json();
 	const { messages } = body;
 
-	const provider  = body.provider  ?? settings.provider ?? 'anthropic';
-	const apiKey    = body.apiKey    ?? settings.apiKey   ?? '';
-	const model     = body.model     ?? settings.model    ?? 'claude-haiku-4-5-20251001';
-	const allTools  = (body.toolMode ?? 'rider') === 'all';
-	const provCfg   = getProviderCfg(provider);
+	const provider = body.provider ?? settings.provider ?? 'anthropic';
+	const apiKey = body.apiKey ?? settings.apiKey ?? '';
+	const model = body.model ?? settings.model ?? 'claude-haiku-4-5-20251001';
+	const allTools = (body.toolMode ?? 'rider') === 'all';
+	const provCfg = getProviderCfg(provider);
 
 	if (!apiKey && !provCfg.local) {
-		throw httpError(400, { error: `No API key set for ${provCfg.label}. Go to Settings.` });
+		throw httpError(
+			400,
+			/** @type {any} */ ({ error: `No API key set for ${provCfg.label}. Go to Settings.` }),
+		);
 	}
 
 	const isLocal = provCfg.local === true;
@@ -127,7 +143,7 @@ export async function POST({ request, fetch }) {
 	try {
 		tools = await getToolDefs(mcp, isArrivalFocusedRequest(messages), allTools);
 	} catch (e) {
-		throw httpError(502, { error: `Cannot reach oba-mcp: ${e.message}` });
+		throw httpError(502, /** @type {any} */ ({ error: `Cannot reach oba-mcp: ${e.message}` }));
 	}
 
 	const stream = new ReadableStream({
@@ -187,8 +203,20 @@ async function streamAnthropic({ apiKey, model, msgs, tools, controller, mcp }) 
 			const toolResults = [];
 			for (const block of finalMsg.content) {
 				if (block.type !== 'tool_use') continue;
-				const result = await dispatchTool(block.name, block.input, controller, sse, mapState, emitted, mcp);
-				toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: JSON.stringify(result) });
+				const result = await dispatchTool(
+					block.name,
+					block.input,
+					controller,
+					sse,
+					mapState,
+					emitted,
+					mcp,
+				);
+				toolResults.push({
+					type: 'tool_result',
+					tool_use_id: block.id,
+					content: JSON.stringify(result),
+				});
 			}
 			currentMsgs = [...currentMsgs, { role: 'user', content: toolResults }];
 		} else {
@@ -203,7 +231,14 @@ async function streamAnthropic({ apiKey, model, msgs, tools, controller, mcp }) 
 // OpenAI-compatible streaming
 // ---------------------------------------------------------------------------
 const _GOOGLE_SCHEMA_ALLOWED = new Set([
-	'type', 'description', 'properties', 'required', 'items', 'enum', 'nullable', 'format',
+	'type',
+	'description',
+	'properties',
+	'required',
+	'items',
+	'enum',
+	'nullable',
+	'format',
 ]);
 
 function _sanitizeSchemaForGoogle(schema) {
@@ -215,7 +250,7 @@ function _sanitizeSchemaForGoogle(schema) {
 		// `properties` maps property NAMES → sub-schemas; preserve names, sanitize values only.
 		if (k === 'properties' && v && typeof v === 'object' && !Array.isArray(v)) {
 			result.properties = Object.fromEntries(
-				Object.entries(v).map(([name, sub]) => [name, _sanitizeSchemaForGoogle(sub)])
+				Object.entries(v).map(([name, sub]) => [name, _sanitizeSchemaForGoogle(sub)]),
 			);
 		} else {
 			result[k] = _sanitizeSchemaForGoogle(v);
@@ -225,21 +260,21 @@ function _sanitizeSchemaForGoogle(schema) {
 }
 
 const _DEFAULT_ADAPTER = {
-	sanitizeSchema:  (s) => s,
-	extraBody:       ()  => ({}),
-	extractToolSig:  ()  => null,
-	embedToolSig:    ()  => ({}),
+	sanitizeSchema: (s) => s,
+	extraBody: () => ({}),
+	extractToolSig: (/** @type {any} */ _tc) => null,
+	embedToolSig: (/** @type {any} */ _sig) => ({}),
 };
 
 const PROVIDER_ADAPTERS = {
 	'google-ai-studio': {
 		sanitizeSchema: _sanitizeSchemaForGoogle,
-		extraBody:      () => ({}),
+		extraBody: () => ({}),
 		// Gemini thinking models return thought_signature under extra_content.google
 		extractToolSig: (tc) => tc.extra_content?.google?.thought_signature ?? null,
-		embedToolSig:   (sig) => ({ extra_content: { google: { thought_signature: sig } } }),
+		embedToolSig: (sig) => ({ extra_content: { google: { thought_signature: sig } } }),
 	},
-	'openrouter': {
+	openrouter: {
 		..._DEFAULT_ADAPTER,
 		// Ask OpenRouter to strip reasoning tokens from the stream
 		extraBody: () => ({ reasoning: { exclude: true } }),
@@ -252,10 +287,14 @@ function getProviderAdapter(id) {
 
 async function streamOpenAI({ provCfg, apiKey, model, msgs, tools, controller, isLocal, mcp }) {
 	const baseURL = provCfg.baseUrl ?? 'https://api.openai.com/v1';
-	const adapter  = getProviderAdapter(provCfg.id);
+	const adapter = getProviderAdapter(provCfg.id);
 	const openaiTools = tools.map((t) => ({
 		type: 'function',
-		function: { name: t.name, description: t.description, parameters: adapter.sanitizeSchema(t.input_schema) },
+		function: {
+			name: t.name,
+			description: t.description,
+			parameters: adapter.sanitizeSchema(t.input_schema),
+		},
 	}));
 
 	const system = isLocal ? LOCAL_SYSTEM : SYSTEM;
@@ -273,15 +312,21 @@ async function streamOpenAI({ provCfg, apiKey, model, msgs, tools, controller, i
 				'X-Title': 'OBA Transit UI',
 			},
 			body: JSON.stringify({
-					model, messages: oaiMsgs, tools: openaiTools, max_tokens: 2048, stream: true,
-					...adapter.extraBody(),
-				}),
+				model,
+				messages: oaiMsgs,
+				tools: openaiTools,
+				max_tokens: 2048,
+				stream: true,
+				...adapter.extraBody(),
+			}),
 		});
 
 		if (!res.ok) {
 			const body = await res.text().catch(() => '');
 			let errMsg;
-			try { errMsg = JSON.parse(body)?.error?.message; } catch {}
+			try {
+				errMsg = JSON.parse(body)?.error?.message;
+			} catch {}
 			console.error(`[${provCfg.id}] HTTP ${res.status}:`, errMsg ?? body.slice(0, 400));
 			throw new Error(errMsg ?? `${provCfg.label} error: HTTP ${res.status}`);
 		}
@@ -291,26 +336,46 @@ async function streamOpenAI({ provCfg, apiKey, model, msgs, tools, controller, i
 		if (!ct.includes('event-stream') && !ct.includes('octet-stream')) {
 			const body = await res.text().catch(() => '');
 			let errMsg;
-			try { errMsg = JSON.parse(body)?.error?.message; } catch {}
+			try {
+				errMsg = JSON.parse(body)?.error?.message;
+			} catch {}
 			console.error(`[${provCfg.id}] non-stream 200 body:`, body.slice(0, 400));
-			throw new Error(errMsg ?? `${provCfg.label} returned a non-streaming response — check your API key and model name.`);
+			throw new Error(
+				errMsg ??
+					`${provCfg.label} returned a non-streaming response — check your API key and model name.`,
+			);
 		}
 
 		const { assistantContent, toolCalls } = await readOpenAIStream(res, controller, adapter);
 
 		if (!toolCalls.length) break;
 
-		oaiMsgs = [...oaiMsgs, {
-			role: 'assistant',
-			content: assistantContent || null,
-			tool_calls: toolCalls,
-		}];
+		oaiMsgs = [
+			...oaiMsgs,
+			{
+				role: 'assistant',
+				content: assistantContent || null,
+				tool_calls: toolCalls,
+			},
+		];
 
 		const toolMsgs = [];
 		for (const tc of toolCalls) {
 			let args;
-			try { args = JSON.parse(tc.function.arguments); } catch { args = {}; }
-			const result = await dispatchTool(tc.function.name, args, controller, sse, mapState, emitted, mcp);
+			try {
+				args = JSON.parse(tc.function.arguments);
+			} catch {
+				args = {};
+			}
+			const result = await dispatchTool(
+				tc.function.name,
+				args,
+				controller,
+				sse,
+				mapState,
+				emitted,
+				mcp,
+			);
 			toolMsgs.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(result) });
 		}
 		oaiMsgs = [...oaiMsgs, ...toolMsgs];
@@ -340,10 +405,17 @@ async function readOpenAIStream(res, controller, adapter = _DEFAULT_ADAPTER) {
 		for (const line of lines) {
 			if (!line.startsWith('data: ')) continue;
 			const raw = line.slice(6).trim();
-			if (raw === '[DONE]') { ended = true; break; }
+			if (raw === '[DONE]') {
+				ended = true;
+				break;
+			}
 
 			let chunk;
-			try { chunk = JSON.parse(raw); } catch { continue; }
+			try {
+				chunk = JSON.parse(raw);
+			} catch {
+				continue;
+			}
 
 			// Some providers embed errors inside the SSE stream.
 			if (chunk.error) throw new Error(chunk.error.message ?? JSON.stringify(chunk.error));
@@ -356,8 +428,12 @@ async function readOpenAIStream(res, controller, adapter = _DEFAULT_ADAPTER) {
 				let text = delta.content;
 				if (inThink) {
 					const end = text.indexOf('</think>');
-					if (end >= 0) { inThink = false; text = text.slice(end + 8); }
-					else { text = ''; }
+					if (end >= 0) {
+						inThink = false;
+						text = text.slice(end + 8);
+					} else {
+						text = '';
+					}
 				}
 				if (text) {
 					const start = text.indexOf('<think>');
@@ -380,8 +456,8 @@ async function readOpenAIStream(res, controller, adapter = _DEFAULT_ADAPTER) {
 			if (delta?.tool_calls) {
 				for (const tc of delta.tool_calls) {
 					if (!tcParts[tc.index]) tcParts[tc.index] = { id: '', name: '', args: '', sig: null };
-					if (tc.id)                  tcParts[tc.index].id   = tc.id;
-					if (tc.function?.name)      tcParts[tc.index].name += tc.function.name;
+					if (tc.id) tcParts[tc.index].id = tc.id;
+					if (tc.function?.name) tcParts[tc.index].name += tc.function.name;
 					if (tc.function?.arguments) tcParts[tc.index].args += tc.function.arguments;
 					const sig = adapter.extractToolSig(tc);
 					if (sig) tcParts[tc.index].sig = sig;
@@ -391,7 +467,8 @@ async function readOpenAIStream(res, controller, adapter = _DEFAULT_ADAPTER) {
 	}
 
 	const toolCalls = Object.values(tcParts).map((tc) => ({
-		id: tc.id, type: 'function',
+		id: tc.id,
+		type: 'function',
 		function: { name: tc.name, arguments: tc.args },
 		...(tc.sig && adapter.embedToolSig(tc.sig)),
 	}));

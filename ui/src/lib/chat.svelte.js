@@ -33,7 +33,7 @@ function coalesceMapCards(cards, incoming) {
 		...routeCards.at(-1),
 		type: 'route_map',
 		directions,
-		markers
+		markers,
 	};
 }
 
@@ -52,12 +52,12 @@ function saveToStorage(msgs) {
 }
 
 function createChatStore() {
-	let messages  = $state(typeof localStorage !== 'undefined' ? loadFromStorage() : []);
-	let loading   = $state(false);  // true while waiting for first byte (shows BusLoader)
-	let streaming = $state(false);  // true while text is flowing in (input disabled)
-	let error     = $state('');
-	let draft     = $state('');
-	let _abort    = null;
+	let messages = $state(typeof localStorage !== 'undefined' ? loadFromStorage() : []);
+	let loading = $state(false); // true while waiting for first byte (shows BusLoader)
+	let streaming = $state(false); // true while text is flowing in (input disabled)
+	let error = $state('');
+	let draft = $state('');
+	let _abort = null;
 
 	function abort() {
 		_abort?.abort();
@@ -67,11 +67,11 @@ function createChatStore() {
 	async function send(text, { provider, apiKey, model, toolMode = 'rider' }) {
 		if (!text?.trim() || loading || streaming) return;
 
-		error    = '';
+		error = '';
 		messages = [...messages, { role: 'user', text: text.trim() }];
 		saveToStorage(messages);
-		loading  = true;
-		_abort   = new AbortController();
+		loading = true;
+		_abort = new AbortController();
 
 		try {
 			const res = await fetch('/api/chat', {
@@ -84,7 +84,7 @@ function createChatStore() {
 					apiKey,
 					model,
 					toolMode,
-				})
+				}),
 			});
 
 			if (!res.ok) {
@@ -93,14 +93,14 @@ function createChatStore() {
 			}
 
 			// Add the assistant shell — stream will fill it in
-			messages  = [...messages, { role: 'assistant', text: '', toolCards: [] }];
+			messages = [...messages, { role: 'assistant', text: '', toolCards: [] }];
 			const lastMsg = messages[messages.length - 1]; // Svelte 5 deep-reactive proxy
-			loading   = false;
+			loading = false;
 			streaming = true;
 
-			const reader  = res.body.getReader();
+			const reader = res.body.getReader();
 			const decoder = new TextDecoder();
-			let buf  = '';
+			let buf = '';
 			let done = false;
 
 			while (!done) {
@@ -115,36 +115,64 @@ function createChatStore() {
 					const line = part.trim();
 					if (!line.startsWith('data: ')) continue;
 					let evt;
-					try { evt = JSON.parse(line.slice(6)); } catch { continue; }
+					try {
+						evt = JSON.parse(line.slice(6));
+					} catch {
+						continue;
+					}
 
 					if (evt.t === 'text') {
 						lastMsg.text += evt.v;
 					} else if (evt.t === 'card') {
 						const cards = lastMsg.toolCards ?? [];
 						if (evt.v.type === 'map_loading') {
-							const hasMap = cards.some((card) =>
-								card.type === 'map_loading' ||
-								['map', 'route_map', 'vehicle_map', 'arrivals_route_map', 'combined_map'].includes(card.type)
+							const hasMap = cards.some(
+								(card) =>
+									card.type === 'map_loading' ||
+									[
+										'map',
+										'route_map',
+										'vehicle_map',
+										'arrivals_route_map',
+										'combined_map',
+									].includes(card.type),
 							);
 							if (!hasMap) lastMsg.toolCards = [...cards, evt.v];
 						} else if (evt.v.type === 'combined_map') {
 							// The server emits exactly one normalized map state per reply.
 							lastMsg.toolCards = [
-								...cards.filter((card) => !['map_loading', 'map', 'route_map', 'vehicle_map', 'arrivals_route_map', 'combined_map'].includes(card.type)),
+								...cards.filter(
+									(card) =>
+										![
+											'map_loading',
+											'map',
+											'route_map',
+											'vehicle_map',
+											'arrivals_route_map',
+											'combined_map',
+										].includes(card.type),
+								),
 								evt.v,
 							];
 						} else if (evt.v.type === 'arrivals_route_map') {
 							// This map already contains the stop, routes, and incoming vehicles.
 							lastMsg.toolCards = [
-								...cards.filter((card) => !['map_loading', 'map', 'route_map', 'vehicle_map'].includes(card.type)),
+								...cards.filter(
+									(card) => !['map_loading', 'map', 'route_map', 'vehicle_map'].includes(card.type),
+								),
 								evt.v,
 							];
-						} else if (['map', 'route_map', 'vehicle_map'].includes(evt.v.type) && cards.some((card) => card.type === 'arrivals_route_map')) {
+						} else if (
+							['map', 'route_map', 'vehicle_map'].includes(evt.v.type) &&
+							cards.some((card) => card.type === 'arrivals_route_map')
+						) {
 							// Ignore a generic map that arrives after the focused arrivals map.
 							continue;
 						} else if (COMBINABLE_MAP_TYPES.has(evt.v.type)) {
 							lastMsg.toolCards = [
-								...cards.filter((card) => card.type !== 'map_loading' && !COMBINABLE_MAP_TYPES.has(card.type)),
+								...cards.filter(
+									(card) => card.type !== 'map_loading' && !COMBINABLE_MAP_TYPES.has(card.type),
+								),
 								coalesceMapCards(cards, evt.v),
 							];
 						} else {
@@ -155,7 +183,9 @@ function createChatStore() {
 					} else if (evt.t === 'error') {
 						throw new Error(evt.v);
 					} else if (evt.t === 'done') {
-						lastMsg.toolCards = (lastMsg.toolCards ?? []).filter((card) => card.type !== 'map_loading');
+						lastMsg.toolCards = (lastMsg.toolCards ?? []).filter(
+							(card) => card.type !== 'map_loading',
+						);
 						done = true;
 						break;
 					}
@@ -176,32 +206,46 @@ function createChatStore() {
 				draft = text; // restore so the user can retry without retyping
 			}
 		} finally {
-			loading   = false;
+			loading = false;
 			streaming = false;
-			_abort    = null;
+			_abort = null;
 		}
 	}
 
 	function clear() {
-		messages  = [];
-		error     = '';
-		loading   = false;
+		messages = [];
+		error = '';
+		loading = false;
 		streaming = false;
-		draft     = '';
+		draft = '';
 		saveToStorage([]);
 	}
 
 	return {
-		get messages()  { return messages;  },
-		get loading()   { return loading;   },
-		get streaming() { return streaming; },
-		get error()     { return error;     },
-		set error(v)    { error = v;        },
-		get draft()     { return draft;     },
-		set draft(v)    { draft = v;        },
+		get messages() {
+			return messages;
+		},
+		get loading() {
+			return loading;
+		},
+		get streaming() {
+			return streaming;
+		},
+		get error() {
+			return error;
+		},
+		set error(v) {
+			error = v;
+		},
+		get draft() {
+			return draft;
+		},
+		set draft(v) {
+			draft = v;
+		},
 		send,
 		abort,
-		clear
+		clear,
 	};
 }
 

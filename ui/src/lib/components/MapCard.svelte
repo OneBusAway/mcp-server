@@ -1,4 +1,9 @@
 <script>
+	// @ts-nocheck
+	// MapCard.svelte carries pre-existing MapLibre + augmented-marker typing debt.
+	// Phase U2.1 (see mcp-features/PRODUCTION_UI_TODO.md and PRODUCTION_UI_AUDIT.md)
+	// splits this file into engine.js, geometry.js, markers.js, and vehicle-animation.js
+	// with proper types; re-enable checkJs then.
 	import { onMount, onDestroy, tick, untrack } from 'svelte';
 	import { browser } from '$app/environment';
 	import { settings } from '$lib/settings.svelte.js';
@@ -27,9 +32,9 @@
 	} = $props();
 
 	const THEMES = [
-		{ id: 'https://tiles.openfreemap.org/styles/bright',  label: 'Bright' },
+		{ id: 'https://tiles.openfreemap.org/styles/bright', label: 'Bright' },
 		{ id: 'https://tiles.openfreemap.org/styles/liberty', label: 'Liberty' },
-		{ id: 'https://demotiles.maplibre.org/style.json',    label: 'Minimal' },
+		{ id: 'https://demotiles.maplibre.org/style.json', label: 'Minimal' },
 	];
 
 	// Route line colors — cycles through these for multi-direction routes
@@ -37,13 +42,26 @@
 
 	function decodePolyline(encoded) {
 		const coordinates = [];
-		let index = 0, lat = 0, lon = 0;
+		let index = 0,
+			lat = 0,
+			lon = 0;
 		while (index < encoded.length) {
-			let result = 0, shift = 0, byte;
-			do { byte = encoded.charCodeAt(index++) - 63; result |= (byte & 0x1f) << shift; shift += 5; } while (byte >= 0x20 && index < encoded.length);
+			let result = 0,
+				shift = 0,
+				byte;
+			do {
+				byte = encoded.charCodeAt(index++) - 63;
+				result |= (byte & 0x1f) << shift;
+				shift += 5;
+			} while (byte >= 0x20 && index < encoded.length);
 			lat += result & 1 ? ~(result >> 1) : result >> 1;
-			result = 0; shift = 0;
-			do { byte = encoded.charCodeAt(index++) - 63; result |= (byte & 0x1f) << shift; shift += 5; } while (byte >= 0x20 && index < encoded.length);
+			result = 0;
+			shift = 0;
+			do {
+				byte = encoded.charCodeAt(index++) - 63;
+				result |= (byte & 0x1f) << shift;
+				shift += 5;
+			} while (byte >= 0x20 && index < encoded.length);
 			lon += result & 1 ? ~(result >> 1) : result >> 1;
 			coordinates.push([lon / 1e5, lat / 1e5]);
 		}
@@ -65,16 +83,16 @@
 	let map;
 	let maplibregl;
 	let markerInstances = [];
-	let popupInstances  = [];
-	let routeLayerIds  = [];
+	let popupInstances = [];
+	let routeLayerIds = [];
 	/** @type {Map<string, { marker: any, popup: any }>} */
 	let vehicleMarkerMap = new Map();
 	let localVehicles = $state([]);
-	let isFullscreen   = $state(false);
-	let showThemes     = $state(false);
-	let activeTheme    = $state(settings.mapStyle);
-	let selectedStop   = $state(null);
-	let mapLoading     = $state(true);
+	let isFullscreen = $state(false);
+	let showThemes = $state(false);
+	let activeTheme = $state(settings.mapStyle);
+	let selectedStop = $state(null);
+	let mapLoading = $state(true);
 	let vehicleRefreshId = null; // plain var — not reactive
 	let vehicleRebuildRaf = null;
 	let lastVehiclesProp = null;
@@ -82,14 +100,17 @@
 	// True when any of this map's tracked trips is being watched in the tracking store
 	const isTracked = $derived(
 		vehicleTripIds.length > 0 &&
-		vehicleTripIds.some(id => tracking.trackers.some(t => t.trip_id === id))
+			vehicleTripIds.some((id) => tracking.trackers.some((t) => t.trip_id === id)),
 	);
 	const routeLegend = $derived.by(() => {
 		const uniqueRoutes = new Map();
 		for (const [index, dir] of routes.entries()) {
 			const key = dir.direction || `Route ${index + 1}`;
 			if (!uniqueRoutes.has(key)) {
-				uniqueRoutes.set(key, { label: key, color: LINE_COLORS[uniqueRoutes.size % LINE_COLORS.length] });
+				uniqueRoutes.set(key, {
+					label: key,
+					color: LINE_COLORS[uniqueRoutes.size % LINE_COLORS.length],
+				});
 			}
 		}
 		return [...uniqueRoutes.values()];
@@ -110,14 +131,14 @@
 
 	function applyTheme(url) {
 		activeTheme = url;
-		showThemes  = false;
+		showThemes = false;
 		mapLoading = true;
 		map?.setStyle(url);
 	}
 
 	function clearRouteLayers() {
 		for (const id of routeLayerIds) {
-			if (map.getLayer(id))  map.removeLayer(id);
+			if (map.getLayer(id)) map.removeLayer(id);
 			if (map.getSource(id)) map.removeSource(id);
 		}
 		routeLayerIds = [];
@@ -149,14 +170,21 @@
 	function animateTo(entry, toLat, toLng, duration = 700) {
 		if (entry._animRaf) cancelAnimationFrame(entry._animRaf);
 		const from = entry.marker.getLngLat();
-		const fromLng = from.lng, fromLat = from.lat;
+		const fromLng = from.lng,
+			fromLat = from.lat;
 		const start = performance.now();
 		function step(now) {
 			const t = Math.min((now - start) / duration, 1);
 			const ease = 1 - Math.pow(1 - t, 3);
-			entry.marker.setLngLat([fromLng + (toLng - fromLng) * ease, fromLat + (toLat - fromLat) * ease]);
-			if (t < 1) { entry._animRaf = requestAnimationFrame(step); }
-			else { entry._animRaf = null; }
+			entry.marker.setLngLat([
+				fromLng + (toLng - fromLng) * ease,
+				fromLat + (toLat - fromLat) * ease,
+			]);
+			if (t < 1) {
+				entry._animRaf = requestAnimationFrame(step);
+			} else {
+				entry._animRaf = null;
+			}
 		}
 		entry._animRaf = requestAnimationFrame(step);
 	}
@@ -167,7 +195,9 @@
 
 	// Metres per degree of longitude at a given latitude
 	const METRES_PER_DEG = 111320;
-	function mPerDeg(lat) { return METRES_PER_DEG * Math.cos(lat * Math.PI / 180); }
+	function mPerDeg(lat) {
+		return METRES_PER_DEG * Math.cos((lat * Math.PI) / 180);
+	}
 
 	function sameStopLocation(a, b, thresholdM = 6) {
 		if (!a || !b) return false;
@@ -175,7 +205,9 @@
 		const bLon = b.lon ?? b.lng;
 		if (![a.lat, aLon, b.lat, bLon].every(Number.isFinite)) return false;
 		const refLat = (a.lat + b.lat) / 2;
-		return Math.hypot((aLon - bLon) * mPerDeg(refLat), (a.lat - b.lat) * METRES_PER_DEG) <= thresholdM;
+		return (
+			Math.hypot((aLon - bLon) * mPerDeg(refLat), (a.lat - b.lat) * METRES_PER_DEG) <= thresholdM
+		);
 	}
 
 	// Returns nearest point on polyline with distM in metres (latitude-corrected)
@@ -191,7 +223,10 @@
 			const py = (point[1] - start[1]) * METRES_PER_DEG;
 			const lengthSq = dx * dx + dy * dy;
 			const fraction = lengthSq ? Math.max(0, Math.min(1, (px * dx + py * dy) / lengthSq)) : 0;
-			const snapped = [start[0] + (end[0] - start[0]) * fraction, start[1] + (end[1] - start[1]) * fraction];
+			const snapped = [
+				start[0] + (end[0] - start[0]) * fraction,
+				start[1] + (end[1] - start[1]) * fraction,
+			];
 			const ex = (point[0] - snapped[0]) * lonScale;
 			const ey = (point[1] - snapped[1]) * METRES_PER_DEG;
 			const distM = Math.hypot(ex, ey);
@@ -212,7 +247,7 @@
 			if (!nearest) continue;
 			if (!best || nearest.distM < best.distM) best = nearest;
 		}
-		return (best && best.distM <= 400) ? best.point : null;
+		return best && best.distM <= 400 ? best.point : null;
 	}
 
 	// Snap using the vehicle's own route when we can identify it; falls back
@@ -228,8 +263,12 @@
 	}
 
 	function routeCoordinatesForVehicle(vehicle, target, from = null) {
-		const shortId = String(vehicle.route_id ?? '').split('_').at(-1);
-		const ids = new Set([vehicle.route_id, vehicle.route_short_name, shortId].filter(Boolean).map(String));
+		const shortId = String(vehicle.route_id ?? '')
+			.split('_')
+			.at(-1);
+		const ids = new Set(
+			[vehicle.route_id, vehicle.route_short_name, shortId].filter(Boolean).map(String),
+		);
 		let best = null;
 		for (const direction of routes) {
 			const coordinates = routeCoordinates(direction);
@@ -257,14 +296,17 @@
 
 		const startProgress = start.index + start.fraction;
 		const endProgress = end.index + end.fraction;
-		const middle = startProgress <= endProgress
-			? coordinates.slice(start.index + 1, end.index + 1)
-			: coordinates.slice(end.index + 1, start.index + 1).reverse();
+		const middle =
+			startProgress <= endProgress
+				? coordinates.slice(start.index + 1, end.index + 1)
+				: coordinates.slice(end.index + 1, start.index + 1).reverse();
 		// Path ends at the on-route projection, NOT at raw GPS. Ending at `target`
 		// (raw GPS) makes the marker rest on a nearby house/parking lot ~10-30 m off
 		// the road — visible immediately when the user zooms in.
 		const path = [from, start.point, ...middle, end.point];
-		return path.filter((point, index) => index === 0 || pointDistance(point, path[index - 1]) > 0.000001);
+		return path.filter(
+			(point, index) => index === 0 || pointDistance(point, path[index - 1]) > 0.000001,
+		);
 	}
 
 	function animateAlongRoute(entry, path, duration = 2800) {
@@ -273,7 +315,10 @@
 		const segmentLengths = path.slice(1).map((point, index) => {
 			const from = path[index];
 			const refLat = (from[1] + point[1]) / 2;
-			return Math.hypot((point[0] - from[0]) * mPerDeg(refLat), (point[1] - from[1]) * METRES_PER_DEG);
+			return Math.hypot(
+				(point[0] - from[0]) * mPerDeg(refLat),
+				(point[1] - from[1]) * METRES_PER_DEG,
+			);
 		});
 		const totalLength = segmentLengths.reduce((total, length) => total + length, 0);
 		if (!totalLength) return;
@@ -286,8 +331,12 @@
 				const length = segmentLengths[index];
 				if (traversed + length >= targetDistance || index === segmentLengths.length - 1) {
 					const fraction = length ? (targetDistance - traversed) / length : 1;
-					const from = path[index], to = path[index + 1];
-					entry.marker.setLngLat([from[0] + (to[0] - from[0]) * fraction, from[1] + (to[1] - from[1]) * fraction]);
+					const from = path[index],
+						to = path[index + 1];
+					entry.marker.setLngLat([
+						from[0] + (to[0] - from[0]) * fraction,
+						from[1] + (to[1] - from[1]) * fraction,
+					]);
 					break;
 				}
 				traversed += length;
@@ -301,8 +350,8 @@
 	function vehiclePopupText(v) {
 		const parts = [];
 		if (v.route_short_name) parts.push(v.route_short_name);
-		if (v.headsign)         parts.push(v.headsign);
-		if (v.stops_away > 0)   parts.push(`${v.stops_away} stop${v.stops_away === 1 ? '' : 's'} away`);
+		if (v.headsign) parts.push(v.headsign);
+		if (v.stops_away > 0) parts.push(`${v.stops_away} stop${v.stops_away === 1 ? '' : 's'} away`);
 		if (v.phase && v.phase !== 'in_progress') parts.push(v.phase.replace(/_/g, ' '));
 		return parts.join(' · ') || v.vehicle_id || 'Vehicle';
 	}
@@ -313,7 +362,10 @@
 		const byVehicleId = new Map();
 		const noId = [];
 		for (const v of vehicles) {
-			if (!v.vehicle_id) { noId.push(v); continue; }
+			if (!v.vehicle_id) {
+				noId.push(v);
+				continue;
+			}
 			const existing = byVehicleId.get(v.vehicle_id);
 			if (!existing || (!existing.lat && v.lat)) byVehicleId.set(v.vehicle_id, v);
 		}
@@ -325,14 +377,14 @@
 	// can all reassign in the same microtask batch — without coalescing this ran the
 	// expensive DOM/snap loop N times back-to-back and blocked the main thread long
 	// enough that clicks stopped registering.
-	function buildVehicleMarkers(trackedIds = new Set()) {
+	function buildVehicleMarkers(_trackedIds = new Set()) {
 		if (!map || !maplibregl) return;
 		if (vehicleRebuildRaf != null) return;
 		vehicleRebuildRaf = requestAnimationFrame(() => {
 			vehicleRebuildRaf = null;
 			// Re-read tracked IDs at fire time so we reflect the latest tracker state,
 			// not the state captured when the first cascading effect scheduled us.
-			const latest = new Set(tracking.trackers.map(t => t.trip_id));
+			const latest = new Set(tracking.trackers.map((t) => t.trip_id));
 			_buildVehicleMarkersNow(latest);
 		});
 	}
@@ -365,7 +417,8 @@
 				// projections made those vehicles look frozen. Keeping the raw source also
 				// prevents unrelated tracker renders from restarting an animation.
 				const prev = entry.sourceLngLat;
-				const destChanged = !prev || Math.abs(prev[0] - lngLat[0]) > 1e-7 || Math.abs(prev[1] - lngLat[1]) > 1e-7;
+				const destChanged =
+					!prev || Math.abs(prev[0] - lngLat[0]) > 1e-7 || Math.abs(prev[1] - lngLat[1]) > 1e-7;
 				if (destChanged) {
 					entry.sourceLngLat = lngLat;
 					entry.targetLngLat = targetSnapped;
@@ -378,15 +431,26 @@
 			} else {
 				const el = makeBusElement(v, isTracked);
 				const popup = new maplibregl.Popup({
-					offset: 20, closeButton: false, className: 'oba-hover-popup'
-				}).setLngLat(targetSnapped).setText(popupText);
-				const marker = new maplibregl.Marker({ element: el, anchor: 'center', subpixelPositioning: true })
+					offset: 20,
+					closeButton: false,
+					className: 'oba-hover-popup',
+				})
+					.setLngLat(targetSnapped)
+					.setText(popupText);
+				const marker = new maplibregl.Marker({
+					element: el,
+					anchor: 'center',
+					subpixelPositioning: true,
+				})
 					.setLngLat(targetSnapped)
 					.addTo(map);
 				el.addEventListener('mouseenter', () => popup.addTo(map));
 				el.addEventListener('mouseleave', () => popup.remove());
 				vehicleMarkerMap.set(key, {
-					marker, popup, el, isTracked,
+					marker,
+					popup,
+					el,
+					isTracked,
 					sourceLngLat: lngLat,
 					targetLngLat: targetSnapped,
 					_animRaf: null,
@@ -410,13 +474,13 @@
 				const result = await callTool('get_vehicles_for_agency', { agency_id: agencyId });
 				const fleet = items(result);
 				if (fleet.length) {
-					localVehicles = fleet.filter(v => v.lat && v.lon);
+					localVehicles = fleet.filter((v) => v.lat && v.lon);
 				}
 			} catch {}
 		} else if (tripIds?.length) {
 			const ids = tripIds.slice(0, 5);
 			const settled = await Promise.allSettled(
-				ids.map(id => callTool('get_trip_details', { trip_id: id, include_schedule: false }))
+				ids.map((id) => callTool('get_trip_details', { trip_id: id, include_schedule: false })),
 			);
 			const updates = settled.flatMap((r) => {
 				if (r.status !== 'fulfilled') return [];
@@ -427,14 +491,22 @@
 				// Merge: update existing vehicles' positions OR add vehicles that weren't in arrivals GPS
 				const merged = [...localVehicles];
 				for (const upd of updates) {
-					const idx = merged.findIndex(v => v.trip_id === upd.trip_id || v.vehicle_id === upd.vehicle_id);
+					const idx = merged.findIndex(
+						(v) => v.trip_id === upd.trip_id || v.vehicle_id === upd.vehicle_id,
+					);
 					if (idx >= 0) {
-						merged[idx] = { ...merged[idx], lat: upd.lat, lon: upd.lon, bearing: upd.bearing ?? merged[idx].bearing };
+						merged[idx] = {
+							...merged[idx],
+							lat: upd.lat,
+							lon: upd.lon,
+							bearing: upd.bearing ?? merged[idx].bearing,
+						};
 					} else {
 						// Use trip_info for route badge label when GPS wasn't in arrivals data
 						const info = tripInfo[upd.trip_id] ?? {};
 						merged.push({
-							lat: upd.lat, lon: upd.lon,
+							lat: upd.lat,
+							lon: upd.lon,
 							trip_id: upd.trip_id,
 							vehicle_id: upd.vehicle_id,
 							route_id: upd.route_id,
@@ -458,17 +530,20 @@
 		clearRouteLayers();
 
 		const allRouteStops = [];
-		const currentStopMarker = markers.find((marker) => stopId && marker.id === stopId)
-			?? markers.find((marker) => marker.is_current);
+		const currentStopMarker =
+			markers.find((marker) => stopId && marker.id === stopId) ??
+			markers.find((marker) => marker.is_current);
 		const colorByRoute = new Map();
 		let colorIndex = 0;
 		routes.forEach((dir, i) => {
 			// Skip the current stop here — it's drawn as the highlighted blue marker
 			// below from `markers`, so drawing the route dot too would stack them.
-			const valid = (dir.stops ?? []).filter((s) =>
-				s.lat && (s.lon || s.lng)
-				&& (!stopId || s.id !== stopId)
-				&& !sameStopLocation(s, currentStopMarker)
+			const valid = (dir.stops ?? []).filter(
+				(s) =>
+					s.lat &&
+					(s.lon || s.lng) &&
+					(!stopId || s.id !== stopId) &&
+					!sameStopLocation(s, currentStopMarker),
 			);
 			const coordinates = routeCoordinates(dir);
 			if (coordinates.length < 2) return;
@@ -482,7 +557,7 @@
 				colorIndex += 1;
 			}
 			const color = colorByRoute.get(colorKey);
-			const srcId  = `route-${i}`;
+			const srcId = `route-${i}`;
 			const layerId = `route-line-${i}`;
 
 			map.addSource(srcId, {
@@ -491,23 +566,24 @@
 					type: 'Feature',
 					geometry: {
 						type: 'LineString',
-						coordinates
-					}
-				}
+						coordinates,
+					},
+				},
 			});
 			map.addLayer({
 				id: layerId,
 				type: 'line',
 				source: srcId,
 				layout: { 'line-join': 'round', 'line-cap': 'round' },
-				paint: { 'line-color': color, 'line-width': 3, 'line-opacity': 0.9 }
+				paint: { 'line-color': color, 'line-width': 3, 'line-opacity': 0.9 },
 			});
 			routeLayerIds.push(srcId, layerId);
 
 			for (const s of valid) {
 				const el = document.createElement('div');
 				Object.assign(el.style, {
-					width: '10px', height: '10px',
+					width: '10px',
+					height: '10px',
 					borderRadius: '50%',
 					background: color,
 					border: '2px solid white',
@@ -516,11 +592,13 @@
 				});
 				const popup = s.name
 					? new maplibregl.Popup({ offset: 10, closeButton: false, className: 'oba-hover-popup' })
-						.setLngLat([s.lon ?? s.lng, s.lat])
-						.setText(s.name)
+							.setLngLat([s.lon ?? s.lng, s.lat])
+							.setText(s.name)
 					: null;
-				const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
-					.setLngLat([s.lon ?? s.lng, s.lat]);
+				const marker = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat([
+					s.lon ?? s.lng,
+					s.lat,
+				]);
 				el.addEventListener('mouseenter', () => {
 					el.style.boxShadow = `0 0 0 3px rgba(255,255,255,0.7), 0 2px 6px rgba(0,0,0,0.35)`;
 					popup?.addTo(map);
@@ -545,7 +623,11 @@
 		// the same physical location even if the upstream IDs differ.
 		const markerCandidates = markers
 			.filter((m) => m.lat && (m.lon || m.lng))
-			.sort((a, b) => Number(Boolean(b.is_current || (stopId && b.id === stopId))) - Number(Boolean(a.is_current || (stopId && a.id === stopId))));
+			.sort(
+				(a, b) =>
+					Number(Boolean(b.is_current || (stopId && b.id === stopId))) -
+					Number(Boolean(a.is_current || (stopId && a.id === stopId))),
+			);
 		const validMarkers = [];
 		for (const marker of markerCandidates) {
 			if (validMarkers.some((existing) => sameStopLocation(existing, marker))) continue;
@@ -557,20 +639,25 @@
 			const isCurrent = !!m.is_current || (!!stopId && m.id === stopId);
 			if (isCurrent) el.className = 'oba-current-stop-marker';
 			Object.assign(el.style, {
-				width: isCurrent ? '20px' : '14px', height: isCurrent ? '20px' : '14px',
+				width: isCurrent ? '20px' : '14px',
+				height: isCurrent ? '20px' : '14px',
 				borderRadius: '50%',
 				background: isCurrent ? '#2563eb' : '#4caf50',
 				border: isCurrent ? '3px solid white' : '2.5px solid white',
-				boxShadow: isCurrent ? '0 0 0 4px rgba(37,99,235,0.28), 0 2px 8px rgba(0,0,0,0.45)' : '0 1px 5px rgba(0,0,0,0.4)',
+				boxShadow: isCurrent
+					? '0 0 0 4px rgba(37,99,235,0.28), 0 2px 8px rgba(0,0,0,0.45)'
+					: '0 1px 5px rgba(0,0,0,0.4)',
 				cursor: hasId ? 'pointer' : 'default',
 			});
 			const popup = m.name
 				? new maplibregl.Popup({ offset: 14, closeButton: false, className: 'oba-hover-popup' })
-					.setLngLat([m.lon ?? m.lng, m.lat])
-					.setText(isCurrent ? `${m.name} · Your stop` : m.name)
+						.setLngLat([m.lon ?? m.lng, m.lat])
+						.setText(isCurrent ? `${m.name} · Your stop` : m.name)
 				: null;
-			const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
-				.setLngLat([m.lon ?? m.lng, m.lat]);
+			const marker = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat([
+				m.lon ?? m.lng,
+				m.lat,
+			]);
 			el.addEventListener('mouseenter', () => {
 				el.style.boxShadow = isCurrent
 					? '0 0 0 6px rgba(37,99,235,0.24), 0 2px 8px rgba(0,0,0,0.45)'
@@ -597,7 +684,7 @@
 		const allPoints = [
 			...allRouteStops,
 			...validMarkers,
-			...localVehicles.filter(v => v.lat && v.lon),
+			...localVehicles.filter((v) => v.lat && v.lon),
 		].filter((p) => p.lat && (p.lon || p.lng));
 
 		if (allPoints.length > 1) {
@@ -613,7 +700,9 @@
 		if (!browser) return;
 		if (autoScroll) {
 			await tick();
-			requestAnimationFrame(() => containerEl?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
+			requestAnimationFrame(() =>
+				containerEl?.scrollIntoView({ behavior: 'smooth', block: 'center' }),
+			);
 		}
 
 		document.addEventListener('fullscreenchange', onFullscreenChange);
@@ -705,7 +794,10 @@
 		const ms = isTracked ? 30_000 : 60_000;
 		refresh();
 		vehicleRefreshId = setInterval(refresh, ms);
-		return () => { clearInterval(vehicleRefreshId); vehicleRefreshId = null; };
+		return () => {
+			clearInterval(vehicleRefreshId);
+			vehicleRefreshId = null;
+		};
 	});
 
 	// Update vehicle positions from tracking store's live stop arrivals
@@ -715,25 +807,26 @@
 		if (!Array.isArray(liveArrivals) || !liveArrivals.length) return;
 		// minutes_before keeps a just-departed trip in this response, and OBA's
 		// embedded tripStatus continues carrying its current vehicle position.
-		const vehicled = liveArrivals.filter(a => a.vehicle_lat && a.vehicle_lon);
+		const vehicled = liveArrivals.filter((a) => a.vehicle_lat && a.vehicle_lon);
 		if (!vehicled.length) return;
 
 		// OBA typically stops reporting GPS the moment a bus reaches/passes the stop.
 		// Keep the last-known position visible for trips the user is still tracking
 		// so the bus doesn't vanish right as it arrives.
 		const trackedTripIds = new Set(
-			tracking.trackers.filter(t => t.stop_id === stopId).map(t => t.trip_id)
+			tracking.trackers.filter((t) => t.stop_id === stopId).map((t) => t.trip_id),
 		);
-		const freshTripIds = new Set(vehicled.map(a => a.trip_id));
+		const freshTripIds = new Set(vehicled.map((a) => a.trip_id));
 		// This effect writes localVehicles, so reading it reactively here would make
 		// the effect trigger itself forever and freeze all page interactions.
 		const currentVehicles = untrack(() => localVehicles);
 		const preserved = currentVehicles.filter(
-			v => v.trip_id && trackedTripIds.has(v.trip_id) && !freshTripIds.has(v.trip_id)
+			(v) => v.trip_id && trackedTripIds.has(v.trip_id) && !freshTripIds.has(v.trip_id),
 		);
 		localVehicles = [
-			...vehicled.map(a => ({
-				lat: a.vehicle_lat, lon: a.vehicle_lon,
+			...vehicled.map((a) => ({
+				lat: a.vehicle_lat,
+				lon: a.vehicle_lon,
 				vehicle_id: a.vehicle_id,
 				trip_id: a.trip_id,
 				route_id: a.route_id,
@@ -748,7 +841,10 @@
 
 	onDestroy(() => {
 		if (vehicleRefreshId) clearInterval(vehicleRefreshId);
-		if (vehicleRebuildRaf != null) { cancelAnimationFrame(vehicleRebuildRaf); vehicleRebuildRaf = null; }
+		if (vehicleRebuildRaf != null) {
+			cancelAnimationFrame(vehicleRebuildRaf);
+			vehicleRebuildRaf = null;
+		}
 		for (const entry of vehicleMarkerMap.values()) {
 			if (entry._animRaf) cancelAnimationFrame(entry._animRaf);
 			entry.popup?.remove();
@@ -763,18 +859,30 @@
 </script>
 
 {#if browser && hasContent}
-	<div bind:this={containerEl}
-		class="overflow-hidden border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-950 {isFullscreen ? 'flex flex-col' : 'rounded-xl'}"
+	<div
+		bind:this={containerEl}
+		class="overflow-hidden border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-950 {isFullscreen
+			? 'flex flex-col'
+			: 'rounded-xl'}"
 	>
-
 		<!-- Map viewport -->
 		<div class="relative" style={isFullscreen ? 'flex: 1 1 0; min-height: 0;' : 'height: 220px'}>
 			<div bind:this={mapEl} style="position: absolute; inset: 0;"></div>
 			{#if mapLoading}
-				<div class="absolute inset-0 z-20 flex items-center justify-center bg-white/80 text-sm text-zinc-600 backdrop-blur-sm dark:bg-zinc-950/80 dark:text-zinc-300" aria-live="polite">
-					<svg class="mr-2 h-4 w-4 animate-spin text-oba-600" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-						<circle class="opacity-25" cx="12" cy="12" r="9" stroke="currentColor" stroke-width="3"></circle>
-						<path class="opacity-75" fill="currentColor" d="M12 3a9 9 0 0 1 9 9h-3a6 6 0 0 0-6-6V3z"></path>
+				<div
+					class="absolute inset-0 z-20 flex items-center justify-center bg-white/80 text-sm text-zinc-600 backdrop-blur-sm dark:bg-zinc-950/80 dark:text-zinc-300"
+					aria-live="polite"
+				>
+					<svg
+						class="mr-2 h-4 w-4 animate-spin text-oba-600"
+						viewBox="0 0 24 24"
+						fill="none"
+						aria-hidden="true"
+					>
+						<circle class="opacity-25" cx="12" cy="12" r="9" stroke="currentColor" stroke-width="3"
+						></circle>
+						<path class="opacity-75" fill="currentColor" d="M12 3a9 9 0 0 1 9 9h-3a6 6 0 0 0-6-6V3z"
+						></path>
 					</svg>
 					Loading map…
 				</div>
@@ -782,7 +890,6 @@
 
 			<!-- Controls -->
 			<div class="absolute right-2 top-2 z-10 flex items-center gap-1">
-
 				<!-- Theme picker -->
 				<div class="relative">
 					<button
@@ -791,24 +898,48 @@
 						title="Change map theme"
 						class="flex h-7 w-7 items-center justify-center rounded-md bg-white/90 text-zinc-600 shadow-sm backdrop-blur-sm transition hover:bg-white hover:text-zinc-900 dark:bg-zinc-900/90 dark:text-zinc-300 dark:hover:bg-zinc-900 dark:hover:text-zinc-100"
 					>
-						<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-							<polygon points="12 2 2 7 12 12 22 7 12 2"/>
-							<polyline points="2 17 12 22 22 17"/>
-							<polyline points="2 12 12 17 22 12"/>
+						<svg
+							xmlns="http://www.w3.org/2000/svg"
+							width="14"
+							height="14"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
+							stroke-linecap="round"
+							stroke-linejoin="round"
+						>
+							<polygon points="12 2 2 7 12 12 22 7 12 2" />
+							<polyline points="2 17 12 22 22 17" />
+							<polyline points="2 12 12 17 22 12" />
 						</svg>
 					</button>
 
 					{#if showThemes}
-						<div class="absolute right-0 top-8 z-20 min-w-[110px] overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
+						<div
+							class="absolute right-0 top-8 z-20 min-w-[110px] overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+						>
 							{#each THEMES as t}
 								<button
 									type="button"
 									onclick={() => applyTheme(t.id)}
 									class="flex w-full items-center gap-2 px-3 py-2 text-left text-xs transition hover:bg-zinc-50 dark:hover:bg-zinc-800
-										{activeTheme === t.id ? 'font-semibold text-oba-600 dark:text-oba-400' : 'text-zinc-700 dark:text-zinc-300'}"
+										{activeTheme === t.id
+										? 'font-semibold text-oba-600 dark:text-oba-400'
+										: 'text-zinc-700 dark:text-zinc-300'}"
 								>
 									{#if activeTheme === t.id}
-										<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+										<svg
+											xmlns="http://www.w3.org/2000/svg"
+											width="10"
+											height="10"
+											viewBox="0 0 24 24"
+											fill="none"
+											stroke="currentColor"
+											stroke-width="3"
+											stroke-linecap="round"
+											stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg
+										>
 									{:else}
 										<span class="w-[10px]"></span>
 									{/if}
@@ -827,14 +958,34 @@
 					class="flex h-7 w-7 items-center justify-center rounded-md bg-white/90 text-zinc-600 shadow-sm backdrop-blur-sm transition hover:bg-white hover:text-zinc-900 dark:bg-zinc-900/90 dark:text-zinc-300 dark:hover:bg-zinc-900 dark:hover:text-zinc-100"
 				>
 					{#if isFullscreen}
-						<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-							<path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/>
-							<path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/>
+						<svg
+							xmlns="http://www.w3.org/2000/svg"
+							width="14"
+							height="14"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
+							stroke-linecap="round"
+							stroke-linejoin="round"
+						>
+							<path d="M8 3v3a2 2 0 0 1-2 2H3" /><path d="M21 8h-3a2 2 0 0 1-2-2V3" />
+							<path d="M3 16h3a2 2 0 0 1 2 2v3" /><path d="M16 21v-3a2 2 0 0 1 2-2h3" />
 						</svg>
 					{:else}
-						<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-							<path d="M3 7V3h4"/><path d="M17 3h4v4"/>
-							<path d="M21 17v4h-4"/><path d="M7 21H3v-4"/>
+						<svg
+							xmlns="http://www.w3.org/2000/svg"
+							width="14"
+							height="14"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
+							stroke-linecap="round"
+							stroke-linejoin="round"
+						>
+							<path d="M3 7V3h4" /><path d="M17 3h4v4" />
+							<path d="M21 17v4h-4" /><path d="M7 21H3v-4" />
 						</svg>
 					{/if}
 				</button>
@@ -844,9 +995,13 @@
 			{#if routeLegend.length > 0}
 				<div class="absolute bottom-6 left-2 z-10 flex flex-col gap-1">
 					{#each routeLegend as route}
-						<div class="flex items-center gap-1.5 rounded-md bg-white/90 px-2 py-1 text-xs shadow-sm backdrop-blur-sm dark:bg-zinc-900/90">
+						<div
+							class="flex items-center gap-1.5 rounded-md bg-white/90 px-2 py-1 text-xs shadow-sm backdrop-blur-sm dark:bg-zinc-900/90"
+						>
 							<span class="h-2 w-4 rounded-full" style="background: {route.color};"></span>
-							<span class="max-w-[160px] truncate font-medium text-zinc-700 dark:text-zinc-300">{route.label}</span>
+							<span class="max-w-[160px] truncate font-medium text-zinc-700 dark:text-zinc-300"
+								>{route.label}</span
+							>
 						</div>
 					{/each}
 				</div>
@@ -855,15 +1010,25 @@
 			<!-- Vehicle count badge (shown on vehicle_map cards with no route legend) -->
 			{#if localVehicles.length > 0 && routes.length === 0}
 				<div class="absolute bottom-6 left-2 z-10">
-					<div class="flex items-center gap-1.5 rounded-md bg-white/90 px-2 py-1 text-xs shadow-sm backdrop-blur-sm dark:bg-zinc-900/90">
-						<svg width="12" height="10" viewBox="0 0 13 10" fill="none" xmlns="http://www.w3.org/2000/svg">
-							<rect x="0.5" y="0.5" width="12" height="7" rx="1.5" fill="#4caf50"/>
-							<rect x="1" y="1" width="5" height="3.5" rx="0.5" fill="white" fill-opacity="0.5"/>
-							<rect x="7" y="1" width="4.5" height="3.5" rx="0.5" fill="white" fill-opacity="0.5"/>
-							<circle cx="2.5" cy="9.2" r="1" fill="#4caf50"/>
-							<circle cx="10.5" cy="9.2" r="1" fill="#4caf50"/>
+					<div
+						class="flex items-center gap-1.5 rounded-md bg-white/90 px-2 py-1 text-xs shadow-sm backdrop-blur-sm dark:bg-zinc-900/90"
+					>
+						<svg
+							width="12"
+							height="10"
+							viewBox="0 0 13 10"
+							fill="none"
+							xmlns="http://www.w3.org/2000/svg"
+						>
+							<rect x="0.5" y="0.5" width="12" height="7" rx="1.5" fill="#4caf50" />
+							<rect x="1" y="1" width="5" height="3.5" rx="0.5" fill="white" fill-opacity="0.5" />
+							<rect x="7" y="1" width="4.5" height="3.5" rx="0.5" fill="white" fill-opacity="0.5" />
+							<circle cx="2.5" cy="9.2" r="1" fill="#4caf50" />
+							<circle cx="10.5" cy="9.2" r="1" fill="#4caf50" />
 						</svg>
-						<span class="font-medium text-zinc-700 dark:text-zinc-300">{localVehicles.length} active vehicle{localVehicles.length === 1 ? '' : 's'}</span>
+						<span class="font-medium text-zinc-700 dark:text-zinc-300"
+							>{localVehicles.length} active vehicle{localVehicles.length === 1 ? '' : 's'}</span
+						>
 					</div>
 				</div>
 			{/if}
@@ -871,8 +1036,17 @@
 
 		<!-- Arrivals pane: shown when a clickable stop is selected -->
 		{#if selectedStop}
-			<div class="border-t border-zinc-200 dark:border-zinc-700 {isFullscreen ? 'flex-shrink-0' : ''}" style={isFullscreen ? 'height: 320px; overflow-y: auto;' : 'max-height: 220px; overflow-y: auto;'}>
-				<ArrivalsPanel stopId={selectedStop.id} stopName={selectedStop.name} onClose={() => (selectedStop = null)} />
+			<div
+				class="border-t border-zinc-200 dark:border-zinc-700 {isFullscreen ? 'flex-shrink-0' : ''}"
+				style={isFullscreen
+					? 'height: 320px; overflow-y: auto;'
+					: 'max-height: 220px; overflow-y: auto;'}
+			>
+				<ArrivalsPanel
+					stopId={selectedStop.id}
+					stopName={selectedStop.name}
+					onClose={() => (selectedStop = null)}
+				/>
 			</div>
 		{/if}
 	</div>

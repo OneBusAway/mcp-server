@@ -30,8 +30,8 @@ jobs:
       - name: Scan Go dependencies
         run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 
-  ui-build:
-    name: UI build
+  ui-quality:
+    name: UI quality and build
     runs-on: ubuntu-24.04
     defaults:
       run:
@@ -46,7 +46,16 @@ jobs:
       - run: npm ci
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=high
-      - run: npm run build
+      - name: Format check
+        run: npm run format:check
+      - name: Lint
+        run: npm run lint
+      - name: Type check
+        run: npm run check
+      - name: Unit tests
+        run: npm run test
+      - name: Build
+        run: npm run build
 
   container-scan:
     name: Container build and scan

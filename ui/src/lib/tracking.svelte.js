@@ -30,19 +30,19 @@ function sendBrowserNotif(title, body) {
 function playChime(departing = false) {
 	if (!browser) return;
 	try {
-		const AC = window.AudioContext || window.webkitAudioContext;
+		const AC = window.AudioContext || /** @type {any} */ (window).webkitAudioContext;
 		if (!AC) return;
 		const ctx = new AC();
 		const now = ctx.currentTime;
 		const notes = departing
 			? [
-				{ freq: 1318.5, at: 0.00, dur: 0.20 },  // E6
-				{ freq: 880.0,  at: 0.18, dur: 0.32 },  // A5
-			]
+					{ freq: 1318.5, at: 0.0, dur: 0.2 }, // E6
+					{ freq: 880.0, at: 0.18, dur: 0.32 }, // A5
+				]
 			: [
-				{ freq: 880.0,  at: 0.00, dur: 0.20 },  // A5
-				{ freq: 1318.5, at: 0.18, dur: 0.32 },  // E6
-			];
+					{ freq: 880.0, at: 0.0, dur: 0.2 }, // A5
+					{ freq: 1318.5, at: 0.18, dur: 0.32 }, // E6
+				];
 		for (const n of notes) {
 			const osc = ctx.createOscillator();
 			const gain = ctx.createGain();
@@ -76,7 +76,7 @@ function createTrackingStore() {
 	/** @type {Record<string, any[]>} stop_id → latest arrivals array */
 	let stopArrivals = $state({});
 
-	/** @type {Record<string, number>} stop_id → interval ID */
+	/** @type {Record<string, any>} stop_id → interval handle (number in browser, Timeout in Node) */
 	const _stopIntervals = {};
 	const POLL_INTERVAL_MS = 15_000;
 	// Keep an arrival visible long enough to receive its at-stop status. Without
@@ -84,7 +84,7 @@ function createTrackingStore() {
 	const TRACKING_MINUTES_BEFORE = 15;
 
 	function _update(id, patch) {
-		trackers = trackers.map(t => (t.id === id ? { ...t, ...patch } : t));
+		trackers = trackers.map((t) => (t.id === id ? { ...t, ...patch } : t));
 	}
 
 	function _markArrived(tracker, arrival, passed = false) {
@@ -95,7 +95,7 @@ function createTrackingStore() {
 		if (!tracker[flag]) {
 			sendBrowserNotif(
 				`🚌 Route ${tracker.route_name} ${passed ? 'has passed' : 'arriving!'}`,
-				`${tracker.headsign || 'Your vehicle'} ${passed ? `has passed ${tracker.stop_name}` : `is at ${tracker.stop_name}`}`
+				`${tracker.headsign || 'Your vehicle'} ${passed ? `has passed ${tracker.stop_name}` : `is at ${tracker.stop_name}`}`,
 			);
 			playChime(passed);
 		}
@@ -112,12 +112,16 @@ function createTrackingStore() {
 
 	function _arrivalTimes(data, tracker) {
 		return {
-			arrivalMs: (data?.predicted_arrival_ms > 0 ? data.predicted_arrival_ms : 0)
-				|| (data?.scheduled_arrival_ms > 0 ? data.scheduled_arrival_ms : 0)
-				|| tracker.arrival_ms || 0,
-			departureMs: (data?.predicted_departure_ms > 0 ? data.predicted_departure_ms : 0)
-				|| (data?.scheduled_departure_ms > 0 ? data.scheduled_departure_ms : 0)
-				|| tracker.departure_ms || 0,
+			arrivalMs:
+				(data?.predicted_arrival_ms > 0 ? data.predicted_arrival_ms : 0) ||
+				(data?.scheduled_arrival_ms > 0 ? data.scheduled_arrival_ms : 0) ||
+				tracker.arrival_ms ||
+				0,
+			departureMs:
+				(data?.predicted_departure_ms > 0 ? data.predicted_departure_ms : 0) ||
+				(data?.scheduled_departure_ms > 0 ? data.scheduled_departure_ms : 0) ||
+				tracker.departure_ms ||
+				0,
 		};
 	}
 
@@ -130,32 +134,35 @@ function createTrackingStore() {
 		const distance = Number(data?.distance_from_stop_meters);
 		const arrival = data?.predicted_arrival || data?.scheduled_arrival || tracker.predicted_arrival;
 		const { arrivalMs, departureMs } = _arrivalTimes(data, tracker);
-		const passedByTime = departureMs > 0
-			? now > departureMs + 30_000
-			: arrivalMs > 0 && now > arrivalMs + 2 * 60_000;
+		const passedByTime =
+			departureMs > 0 ? now > departureMs + 30_000 : arrivalMs > 0 && now > arrivalMs + 2 * 60_000;
 		if (passedByTime) {
 			_markArrived(tracker, arrival, true);
 			return;
 		}
 
-		const insideArrivalWindow = arrivalMs > 0
-			&& now >= arrivalMs - 60_000
-			&& (departureMs <= 0 || now <= departureMs + 30_000);
-		const atStopByDistance = Number.isFinite(distance) && distance >= 0 && distance <= 50
-			&& (arrivalMs <= 0 || now >= arrivalMs - 2 * 60_000);
+		const insideArrivalWindow =
+			arrivalMs > 0 &&
+			now >= arrivalMs - 60_000 &&
+			(departureMs <= 0 || now <= departureMs + 30_000);
+		const atStopByDistance =
+			Number.isFinite(distance) &&
+			distance >= 0 &&
+			distance <= 50 &&
+			(arrivalMs <= 0 || now >= arrivalMs - 2 * 60_000);
 		if (stopsAway === 0 || insideArrivalWindow || atStopByDistance) {
 			_markArrived(tracker, arrival);
 			_update(tracker.id, { arrival_ms: arrivalMs, departure_ms: departureMs });
 			return;
 		}
 
-		const approachingByTime = arrivalMs > now && arrivalMs-now <= 5 * 60_000;
+		const approachingByTime = arrivalMs > now && arrivalMs - now <= 5 * 60_000;
 		const approachingByDistance = Number.isFinite(distance) && distance > 50 && distance <= 300;
 		const approaching = stopsAway === 1 || approachingByTime || approachingByDistance;
 		if (approaching && !tracker.notified_approach) {
 			sendBrowserNotif(
 				`🚌 Route ${tracker.route_name} — approaching`,
-				`${tracker.headsign || ''} approaching ${tracker.stop_name}`
+				`${tracker.headsign || ''} approaching ${tracker.stop_name}`,
 			);
 		}
 		_update(tracker.id, {
@@ -175,7 +182,11 @@ function createTrackingStore() {
 		const prev = stopArrivals[stop_id] ?? [];
 		const now = Date.now();
 		for (const tracker of trackers.filter((item) => item.stop_id === stop_id)) {
-			if (tracker.status === 'passed' && tracker.passed_at != null && now - tracker.passed_at >= TRACKING_MINUTES_BEFORE * 60_000) {
+			if (
+				tracker.status === 'passed' &&
+				tracker.passed_at != null &&
+				now - tracker.passed_at >= TRACKING_MINUTES_BEFORE * 60_000
+			) {
 				remove(tracker.id);
 			}
 		}
@@ -188,13 +199,13 @@ function createTrackingStore() {
 				limit: 50,
 			});
 			const fresh = normalizeArrivals(items(result));
-			const freshIds = new Set(fresh.map(a => a.trip_id));
+			const freshIds = new Set(fresh.map((a) => a.trip_id));
 			// Keep arrivals from previous response for 1 extra cycle to prevent flicker.
 			// Only carry over non-ghost trips with a future arrival time.
 			const ghosts = prev
-				.filter(a => !a._ghost && !freshIds.has(a.trip_id))
-				.filter(a => (a.predicted_arrival_ms || a.scheduled_arrival_ms || 0) > now)
-				.map(a => ({ ...a, _ghost: true }));
+				.filter((a) => !a._ghost && !freshIds.has(a.trip_id))
+				.filter((a) => (a.predicted_arrival_ms || a.scheduled_arrival_ms || 0) > now)
+				.map((a) => ({ ...a, _ghost: true }));
 			stopArrivals = { ...stopArrivals, [stop_id]: [...fresh, ...ghosts] };
 
 			// One stop-level response updates every tracker for this stop, including
@@ -221,29 +232,34 @@ function createTrackingStore() {
 
 		const eligible = arrivals
 			.map(normalizeArrival)
-			.filter(a => a.predicted && a.trip_id && a.service_date);
+			.filter((a) => a.predicted && a.trip_id && a.service_date);
 		if (!eligible.length) return 0;
 
 		let added = 0;
 		for (const a of eligible) {
 			const key = `${stop_id}__${a.trip_id}`;
-			if (trackers.some(t => t.key === key)) continue;
+			if (trackers.some((t) => t.key === key)) continue;
 
 			const id = crypto.randomUUID();
 
 			trackers = [
 				...trackers,
 				{
-					id, key,
-					stop_id, stop_name,
+					id,
+					key,
+					stop_id,
+					stop_name,
 					trip_id: a.trip_id,
 					service_date: a.service_date,
 					route_name: a.route_name,
 					headsign: a.headsign || '',
 					stops_away: a.number_of_stops_away ?? null,
 					predicted_arrival: a.predicted_arrival || a.scheduled_arrival || '',
-					arrival_ms: (a.predicted_arrival_ms > 0 ? a.predicted_arrival_ms : a.scheduled_arrival_ms) || 0,
-					departure_ms: (a.predicted_departure_ms > 0 ? a.predicted_departure_ms : a.scheduled_departure_ms) || 0,
+					arrival_ms:
+						(a.predicted_arrival_ms > 0 ? a.predicted_arrival_ms : a.scheduled_arrival_ms) || 0,
+					departure_ms:
+						(a.predicted_departure_ms > 0 ? a.predicted_departure_ms : a.scheduled_departure_ms) ||
+						0,
 					status: 'tracking',
 					notified_approach: false,
 					notified_arrival: false,
@@ -266,11 +282,11 @@ function createTrackingStore() {
 	}
 
 	function remove(trackerId) {
-		const t = trackers.find(x => x.id === trackerId);
+		const t = trackers.find((x) => x.id === trackerId);
 		if (t) {
-			trackers = trackers.filter(x => x.id !== trackerId);
+			trackers = trackers.filter((x) => x.id !== trackerId);
 			// Stop stop-level refresh when no more trackers remain for this stop
-			if (!trackers.some(x => x.stop_id === t.stop_id)) {
+			if (!trackers.some((x) => x.stop_id === t.stop_id)) {
 				clearInterval(_stopIntervals[t.stop_id]);
 				delete _stopIntervals[t.stop_id];
 				const next = { ...stopArrivals };
@@ -282,15 +298,19 @@ function createTrackingStore() {
 
 	function clear() {
 		for (const id of Object.values(_stopIntervals)) clearInterval(id);
-		Object.keys(_stopIntervals).forEach(k => delete _stopIntervals[k]);
+		Object.keys(_stopIntervals).forEach((k) => delete _stopIntervals[k]);
 		trackers = [];
 		stopArrivals = {};
 	}
 
 	return {
-		get trackers() { return trackers; },
+		get trackers() {
+			return trackers;
+		},
 		/** Reactive map of stop_id → latest arrivals (populated when tracking is active). */
-		get stopArrivals() { return stopArrivals; },
+		get stopArrivals() {
+			return stopArrivals;
+		},
 		add,
 		remove,
 		clear,

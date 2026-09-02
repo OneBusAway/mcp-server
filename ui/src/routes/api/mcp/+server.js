@@ -35,7 +35,11 @@ export async function POST({ request }) {
 
 	let upstream;
 	try {
-		upstream = await globalThis.fetch(endpoint, { method: 'POST', headers, body: await request.arrayBuffer() });
+		upstream = await globalThis.fetch(endpoint, {
+			method: 'POST',
+			headers,
+			body: await request.arrayBuffer(),
+		});
 	} catch {
 		return json({ error: { message: 'The MCP service is unavailable.' } }, { status: 502 });
 	}

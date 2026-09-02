@@ -58,10 +58,13 @@ export function normalizeArrival(a) {
 	const serviceDate = a.service_date ?? a.service_date_ms ?? 0;
 
 	const schedMs = a.scheduled_arrival_ms ?? 0;
-	const predMs  = a.predicted_arrival_ms ?? 0;
-	const deviationSecs = a.deviation_seconds !== undefined
-		? a.deviation_seconds
-		: (a.predicted && predMs > 0 && schedMs > 0 ? Math.round((predMs - schedMs) / 1000) : 0);
+	const predMs = a.predicted_arrival_ms ?? 0;
+	const deviationSecs =
+		a.deviation_seconds !== undefined
+			? a.deviation_seconds
+			: a.predicted && predMs > 0 && schedMs > 0
+				? Math.round((predMs - schedMs) / 1000)
+				: 0;
 	let deviationLabel = a.deviation_label ?? null;
 	if (deviationLabel === null && a.predicted && predMs > 0 && schedMs > 0) {
 		const absMins = Math.floor(Math.abs(deviationSecs) / 60);

@@ -2,6 +2,9 @@
 ui/node_modules/
 ui/build/
 ui/.svelte-kit/
+ui/coverage/
+ui/playwright-report/
+ui/test-results/
 
 # Generated MCP binary and local runtime data
 mcp/oba-mcp

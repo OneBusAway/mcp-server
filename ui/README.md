@@ -47,11 +47,11 @@ MCP bearer token or the upstream OBA API key.
 
 ## Configuration
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| Provider | Anthropic | AI provider: Anthropic, OpenAI, OpenRouter, Ollama, llama-server |
-| API Key | — | API key for the selected provider |
-| Model | `claude-haiku-4-5-20251001` | Model to use for chat |
+| Setting  | Default                     | Description                                                      |
+| -------- | --------------------------- | ---------------------------------------------------------------- |
+| Provider | Anthropic                   | AI provider: Anthropic, OpenAI, OpenRouter, Ollama, llama-server |
+| API Key  | —                           | API key for the selected provider                                |
+| Model    | `claude-haiku-4-5-20251001` | Model to use for chat                                            |
 
 Provider settings are stored in `localStorage`. Configure the UI server with
 `OBA_MCP_URL` (the private MCP base URL) and `OBA_MCP_AUTH_TOKEN` (the private
@@ -84,26 +84,13 @@ docker run -p 3000:3000 \
 
 ## Project Layout
 
-```
-src/
-  app.html               # HTML shell
-  app.css                # Tailwind base styles
-  lib/
-    chat.svelte.js       # Global chat store (messages, streaming, history)
-    mcp.js               # Same-origin MCP proxy client (callTool, listTools)
-    settings.svelte.js   # Persistent UI settings (provider, model, API key)
-    components/
-      ArrivalsPanel.svelte  # Live arrival board for a stop
-      ArrivalRow.svelte     # Single arrival row
-      MapCard.svelte        # MapLibre map with stop/route markers
-      BusLoader.svelte      # Loading spinner
-      Icon.svelte           # Lucide icon wrapper
-  routes/
-    +layout.svelte       # App shell (sidebar + main)
-    chat/+page.svelte    # Main chat page
-    api/mcp/+server.js   # Server-only authenticated MCP proxy
-    api/chat/+server.js  # SSE streaming endpoint — bridges UI ↔ MCP ↔ AI
-```
+See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full module map, data flow,
+MCP contract boundaries, and extension points.
+
+## Contributing
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for the dev loop, testing, provider
+setup, and PR checklist.
 
 ## Makefile
 

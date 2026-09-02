@@ -14,24 +14,31 @@
 	 *   deviation_label?: string,
 	 *   deviation_seconds?: number,
 	 *   number_of_stops_away?: number,
+	 *   trip_id?: string,
 	 * }} Arrival
 	 */
 	/** @type {{ arrival: Arrival, trackingActive?: boolean, onToggleTracking?: (() => void) | null }} */
 	let { arrival, trackingActive = false, onToggleTracking = null } = $props();
 
 	const routeLabel = $derived(arrival.route_name ?? arrival.route_short_name ?? '');
-	const schedTime  = $derived(arrival.scheduled_arrival_display ?? arrival.scheduled_arrival ?? '');
-	const predTime   = $derived(arrival.predicted_arrival_display ?? arrival.predicted_arrival ?? schedTime);
+	const schedTime = $derived(arrival.scheduled_arrival_display ?? arrival.scheduled_arrival ?? '');
+	const predTime = $derived(
+		arrival.predicted_arrival_display ?? arrival.predicted_arrival ?? schedTime,
+	);
 
-	const late     = $derived((arrival.deviation_seconds ?? 0) > 60);
-	const early    = $derived((arrival.deviation_seconds ?? 0) < -60);
+	const late = $derived((arrival.deviation_seconds ?? 0) > 60);
+	const early = $derived((arrival.deviation_seconds ?? 0) < -60);
 	const isOnTime = $derived(!late && !early);
 	const devColor = $derived(late ? '#ef4444' : early ? '#3b82f6' : '#4caf50');
 </script>
 
-<div class="flex items-center gap-3 rounded-lg px-3 py-2.5 transition hover:bg-zinc-50 dark:hover:bg-zinc-800/60">
+<div
+	class="flex items-center gap-3 rounded-lg px-3 py-2.5 transition hover:bg-zinc-50 dark:hover:bg-zinc-800/60"
+>
 	<!-- Route badge -->
-	<span class="flex h-8 w-10 shrink-0 items-center justify-center rounded-md bg-oba-500 text-xs font-bold text-white">
+	<span
+		class="flex h-8 w-10 shrink-0 items-center justify-center rounded-md bg-oba-500 text-xs font-bold text-white"
+	>
 		{routeLabel}
 	</span>
 
@@ -51,7 +58,11 @@
 
 	<!-- Time -->
 	<div class="shrink-0 text-right">
-		<p class="text-sm font-semibold {arrival.predicted ? 'text-oba-700 dark:text-oba-400' : 'text-zinc-600 dark:text-zinc-300'}">
+		<p
+			class="text-sm font-semibold {arrival.predicted
+				? 'text-oba-700 dark:text-oba-400'
+				: 'text-zinc-600 dark:text-zinc-300'}"
+		>
 			{arrival.predicted ? predTime : schedTime}
 		</p>
 		{#if arrival.deviation_label}
@@ -69,11 +80,23 @@
 			onclick={onToggleTracking}
 			title={trackingActive ? 'Stop tracking this bus' : 'Track this bus'}
 			aria-label={trackingActive ? 'Stop tracking this bus' : 'Track this bus'}
-			class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md transition {trackingActive ? 'bg-oba-100 text-oba-700 dark:bg-oba-500/20 dark:text-oba-300' : 'text-zinc-400 hover:bg-zinc-100 hover:text-oba-600 dark:hover:bg-zinc-800 dark:hover:text-oba-400'}"
+			class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md transition {trackingActive
+				? 'bg-oba-100 text-oba-700 dark:bg-oba-500/20 dark:text-oba-300'
+				: 'text-zinc-400 hover:bg-zinc-100 hover:text-oba-600 dark:hover:bg-zinc-800 dark:hover:text-oba-400'}"
 		>
-			<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-				<path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"/>
-				<circle cx="12" cy="12" r="2.5"/>
+			<svg
+				xmlns="http://www.w3.org/2000/svg"
+				width="16"
+				height="16"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				stroke-width="2"
+				stroke-linecap="round"
+				stroke-linejoin="round"
+			>
+				<path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z" />
+				<circle cx="12" cy="12" r="2.5" />
 			</svg>
 		</button>
 	{/if}

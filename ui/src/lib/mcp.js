@@ -58,7 +58,11 @@ export function createMCPClient(fetchImpl) {
 
 	async function ensureInit() {
 		if (sessionId) return;
-		if (!initPromise) initPromise = doInit().catch((error) => { initPromise = null; throw error; });
+		if (!initPromise)
+			initPromise = doInit().catch((error) => {
+				initPromise = null;
+				throw error;
+			});
 		await initPromise;
 	}
 
@@ -68,7 +72,10 @@ export function createMCPClient(fetchImpl) {
 			method: 'POST',
 			headers: mcpHeaders(),
 			body: JSON.stringify({
-				jsonrpc: '2.0', id: crypto.randomUUID(), method: 'tools/call', params: { name, arguments: args },
+				jsonrpc: '2.0',
+				id: crypto.randomUUID(),
+				method: 'tools/call',
+				params: { name, arguments: args },
 			}),
 		});
 		captureSession(response);
@@ -79,10 +86,14 @@ export function createMCPClient(fetchImpl) {
 		const structured = result.result?.structuredContent;
 		if (structured != null) {
 			if (result.result?.isError) {
-				const error = new Error(structured.message ?? structured.code ?? 'Tool error');
+				const error =
+					/** @type {Error & { code?: string, retryable?: boolean, retryAfterMs?: number|null, requestId?: string }} */ (
+						new Error(structured.message ?? structured.code ?? 'Tool error')
+					);
 				error.code = structured.code;
 				error.retryable = structured.retryable ?? false;
 				error.retryAfterMs = structured.retry_after_ms ?? null;
+				error.requestId = structured.request_id ?? null;
 				throw error;
 			}
 			return structured;
@@ -90,13 +101,19 @@ export function createMCPClient(fetchImpl) {
 
 		if (result.result?.isError) throw new Error(result.result?.content?.[0]?.text ?? 'Tool error');
 		const raw = result.result?.content?.[0]?.text ?? 'null';
-		const jsonStart = raw.search(/\n[{\[]/);
+		const jsonStart = raw.search(/\n[{[]/);
 		let legacyData;
 		if (jsonStart !== -1) {
-			try { legacyData = JSON.parse(raw.slice(jsonStart + 1)); } catch {}
+			try {
+				legacyData = JSON.parse(raw.slice(jsonStart + 1));
+			} catch {}
 		}
 		if (legacyData === undefined) {
-			try { legacyData = JSON.parse(raw); } catch { legacyData = raw; }
+			try {
+				legacyData = JSON.parse(raw);
+			} catch {
+				legacyData = raw;
+			}
 		}
 		return { data: legacyData, meta: null, warnings: null };
 	}
@@ -104,7 +121,8 @@ export function createMCPClient(fetchImpl) {
 	async function listTools() {
 		await ensureInit();
 		const response = await fetchImpl(mcpProxyPath, {
-			method: 'POST', headers: mcpHeaders(),
+			method: 'POST',
+			headers: mcpHeaders(),
 			body: JSON.stringify({ jsonrpc: '2.0', id: 'list-tools', method: 'tools/list', params: {} }),
 		});
 		captureSession(response);
@@ -114,11 +132,14 @@ export function createMCPClient(fetchImpl) {
 	return {
 		callTool,
 		listTools,
-		resetSession: () => { sessionId = null; initPromise = null; },
+		resetSession: () => {
+			sessionId = null;
+			initPromise = null;
+		},
 	};
 }
 
-const browserClient = createMCPClient((...args) => fetch(...args));
+const browserClient = createMCPClient((input, init) => fetch(input, init));
 export const callTool = (...args) => browserClient.callTool(...args);
 export const listTools = () => browserClient.listTools();
 export const resetSession = () => browserClient.resetSession();

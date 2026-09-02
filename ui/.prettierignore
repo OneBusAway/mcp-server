@@ -1,0 +1,7 @@
+.svelte-kit/
+build/
+node_modules/
+coverage/
+playwright-report/
+test-results/
+package-lock.json

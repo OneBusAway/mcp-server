@@ -17,9 +17,13 @@ import { unwrap } from '$lib/result.js';
  */
 export function decodePolyline(encoded) {
 	const coordinates = [];
-	let index = 0, lat = 0, lon = 0;
+	let index = 0,
+		lat = 0,
+		lon = 0;
 	while (index < encoded.length) {
-		let result = 0, shift = 0, byte;
+		let result = 0,
+			shift = 0,
+			byte;
 		do {
 			byte = encoded.charCodeAt(index++) - 63;
 			result |= (byte & 0x1f) << shift;
@@ -27,7 +31,8 @@ export function decodePolyline(encoded) {
 		} while (byte >= 0x20 && index < encoded.length);
 		lat += result & 1 ? ~(result >> 1) : result >> 1;
 
-		result = 0; shift = 0;
+		result = 0;
+		shift = 0;
 		do {
 			byte = encoded.charCodeAt(index++) - 63;
 			result |= (byte & 0x1f) << shift;
@@ -89,11 +94,21 @@ export function markCurrentStop(markers) {
 
 export function createMapState() {
 	return {
-		markers: [], directions: [], vehicles: [], routeIds: [], vehicleTripIds: [], tripInfo: {},
+		markers: [],
+		directions: [],
+		vehicles: [],
+		routeIds: [],
+		vehicleTripIds: [],
+		tripInfo: {},
 		stopsById: new Map(),
 		requiresStopChoice: false,
-		markerKeys: new Set(), markerIndexes: new Map(), currentMarkerKey: null,
-		directionKeys: new Set(), vehicleKeys: new Set(), routeIdSet: new Set(), tripIds: new Set(),
+		markerKeys: new Set(),
+		markerIndexes: new Map(),
+		currentMarkerKey: null,
+		directionKeys: new Set(),
+		vehicleKeys: new Set(),
+		routeIdSet: new Set(),
+		tripIds: new Set(),
 	};
 }
 
@@ -101,7 +116,8 @@ export function addMarkers(mapState, markers) {
 	for (const marker of markers) {
 		if (marker?.lat == null || marker?.lon == null) continue;
 		const key = marker.id ?? `${marker.lat},${marker.lon}`;
-		const isCurrent = marker.is_current && (!mapState.currentMarkerKey || mapState.currentMarkerKey === key);
+		const isCurrent =
+			marker.is_current && (!mapState.currentMarkerKey || mapState.currentMarkerKey === key);
 		if (mapState.markerKeys.has(key)) {
 			const index = mapState.markerIndexes.get(key);
 			if (isCurrent && !mapState.markers[index].is_current) {

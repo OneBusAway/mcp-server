@@ -10,5 +10,6 @@
 			style="background-color: {color}"
 		></span>
 	{/if}
-	<span class="relative inline-flex h-2.5 w-2.5 rounded-full" style="background-color: {color}"></span>
+	<span class="relative inline-flex h-2.5 w-2.5 rounded-full" style="background-color: {color}"
+	></span>
 </span>

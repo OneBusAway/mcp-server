@@ -10,7 +10,9 @@
 	<title>OBA Transit Dashboard</title>
 </svelte:head>
 
-<div class="flex min-h-screen flex-col bg-zinc-50 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100">
+<div
+	class="flex min-h-screen flex-col bg-zinc-50 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100"
+>
 	<Header />
 	<main class="flex flex-1 flex-col">
 		{@render children()}
