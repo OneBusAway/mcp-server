@@ -27,7 +27,15 @@ export async function POST({ request }) {
 		return json({ error: { message: 'The MCP proxy is not configured.' } }, { status: 503 });
 	}
 
-	const headers = new Headers({ Authorization: `Bearer ${env.OBA_MCP_AUTH_TOKEN}` });
+	// Accept X-Request-ID from the caller (browser MCP client); generate one if absent.
+	// The ID is forwarded upstream so the MCP can attach it to structuredContent for
+	// end-to-end correlation (phase-6 contract, see results.go AttachRequestID).
+	const requestId = request.headers.get('x-request-id') ?? crypto.randomUUID();
+
+	const headers = new Headers({
+		Authorization: `Bearer ${env.OBA_MCP_AUTH_TOKEN}`,
+		'X-Request-ID': requestId,
+	});
 	for (const name of forwardedRequestHeaders) {
 		const value = request.headers.get(name);
 		if (value) headers.set(name, value);
@@ -44,7 +52,7 @@ export async function POST({ request }) {
 		return json({ error: { message: 'The MCP service is unavailable.' } }, { status: 502 });
 	}
 
-	const responseHeaders = new Headers();
+	const responseHeaders = new Headers({ 'X-Request-ID': requestId });
 	for (const name of forwardedResponseHeaders) {
 		const value = upstream.headers.get(name);
 		if (value) responseHeaders.set(name, value);

@@ -2,6 +2,7 @@ import { error as httpError } from '@sveltejs/kit';
 import Anthropic from '@anthropic-ai/sdk';
 import { createMCPClient } from '$lib/mcp.js';
 import { settings, PROVIDERS } from '$lib/settings.svelte.js';
+import { RIDER_TOOLS, ARRIVAL_FOCUSED_TOOLS } from '$lib/mcp/tools.js';
 import { sse } from './stream.js';
 import { dispatchTool, createMapState } from './dispatch.js';
 import { flushMapState } from './map.js';
@@ -52,38 +53,8 @@ CRITICAL RULES:
 // Tool list cache (5-minute TTL — tools never change while oba-mcp is running)
 // ---------------------------------------------------------------------------
 
-// Rider-facing tool allowlist. Applied to all providers — the MCP server may
-// expose more tools (get_block, get_shape, get_metadata, etc.) but the
-// passenger UI has no use for them and their presence increases token cost
-// and tool-selection ambiguity.
-const RIDER_TOOLS = new Set([
-	'get_agencies',
-	'get_agency',
-	'get_stop',
-	'search_stops',
-	'find_stops_near_location',
-	'get_stop_overview',
-	'get_stops_for_agency',
-	'get_arrivals_for_stop',
-	'get_arrivals_for_location',
-	'get_arrival_and_departure_for_stop',
-	'get_stop_schedule',
-	'get_route',
-	'search_routes',
-	'get_routes_for_agency',
-	'get_routes_for_location',
-	'get_stops_for_route',
-	'get_trip_details',
-	'get_trip_for_vehicle',
-	'get_trips_for_route',
-	'get_vehicles_for_agency',
-	'get_current_time',
-]);
-
 let _toolsCache = null;
 let _toolsCacheAt = 0;
-
-const ARRIVAL_FOCUSED_TOOLS = new Set(['search_stops', 'get_arrivals_for_stop']);
 
 async function getToolDefs(mcp, arrivalFocused, allTools = false) {
 	if (!_toolsCache || Date.now() - _toolsCacheAt >= 5 * 60_000) {

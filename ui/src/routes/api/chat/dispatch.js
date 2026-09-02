@@ -7,6 +7,7 @@
  */
 
 import { unwrap, items, normalizeArrivals } from '$lib/result.js';
+import { MAP_RENDERING_TOOLS } from '$lib/mcp/tools.js';
 import {
 	createMapState,
 	addMarkers,
@@ -22,18 +23,6 @@ import {
 } from './map.js';
 
 export { createMapState };
-
-const MAP_RENDERING_TOOLS = new Set([
-	'get_arrivals_for_stop',
-	'find_stops_near_location',
-	'search_stops',
-	'get_stop',
-	'get_stop_overview',
-	'get_stops_for_route',
-	'get_trips_for_route',
-	'get_trip_details',
-	'get_trips_for_location',
-]);
 
 /**
  * Call one MCP tool, emit any applicable SSE cards, and return the raw

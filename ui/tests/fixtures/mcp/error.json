@@ -1,0 +1,7 @@
+{
+  "code": "UPSTREAM_TIMEOUT",
+  "message": "The transit service timed out.",
+  "retryable": true,
+  "retry_after_ms": 5000,
+  "request_id": "test-req-id-002"
+}

@@ -1,3 +1,5 @@
+import { parseStructured } from './mcp/schemas.js';
+
 const mcpProxyPath = '/api/mcp';
 
 function parseResponse(text) {
@@ -84,38 +86,10 @@ export function createMCPClient(fetchImpl) {
 		if (result.error) throw new Error(result.error.message ?? JSON.stringify(result.error));
 
 		const structured = result.result?.structuredContent;
-		if (structured != null) {
-			if (result.result?.isError) {
-				const error =
-					/** @type {Error & { code?: string, retryable?: boolean, retryAfterMs?: number|null, requestId?: string }} */ (
-						new Error(structured.message ?? structured.code ?? 'Tool error')
-					);
-				error.code = structured.code;
-				error.retryable = structured.retryable ?? false;
-				error.retryAfterMs = structured.retry_after_ms ?? null;
-				error.requestId = structured.request_id ?? null;
-				throw error;
-			}
-			return structured;
+		if (structured == null) {
+			throw new Error(`Tool "${name}" returned no structuredContent`);
 		}
-
-		if (result.result?.isError) throw new Error(result.result?.content?.[0]?.text ?? 'Tool error');
-		const raw = result.result?.content?.[0]?.text ?? 'null';
-		const jsonStart = raw.search(/\n[{[]/);
-		let legacyData;
-		if (jsonStart !== -1) {
-			try {
-				legacyData = JSON.parse(raw.slice(jsonStart + 1));
-			} catch {}
-		}
-		if (legacyData === undefined) {
-			try {
-				legacyData = JSON.parse(raw);
-			} catch {
-				legacyData = raw;
-			}
-		}
-		return { data: legacyData, meta: null, warnings: null };
+		return parseStructured(structured, result.result?.isError === true);
 	}
 
 	async function listTools() {
