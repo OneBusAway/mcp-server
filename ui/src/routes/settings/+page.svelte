@@ -110,12 +110,12 @@
 </script>
 
 <svelte:head>
-	<title>Settings · OBA Transit</title>
+	<title>Settings · OneBusAway Assistant</title>
 </svelte:head>
 
-<div class="mx-auto max-w-2xl px-4 py-8 sm:px-6">
-	<h1 class="mb-1 text-2xl font-bold text-zinc-900 dark:text-zinc-100">Settings</h1>
-	<p class="mb-6 text-sm text-zinc-500 dark:text-zinc-400">
+<div class="mx-auto max-w-[760px] px-5 py-10 sm:px-6">
+	<h1 class="oba-heading mb-1 text-[34px] font-medium leading-tight tracking-tight">Settings</h1>
+	<p class="mb-7 text-sm text-[#566159] dark:text-[#a2ada5]">
 		Stored in your browser's localStorage — never sent to any third party.
 	</p>
 
@@ -124,11 +124,11 @@
 			e.preventDefault();
 			save();
 		}}
-		class="space-y-5"
+		class="space-y-4"
 	>
 		<!-- AI Provider -->
 		<section
-			class="rounded-xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900"
+			class="rounded-[10px] border border-[#cedadf] bg-white p-6 shadow-[0_1px_3px_rgba(23,33,38,.07)] dark:border-[#34382f] dark:bg-[#1a1d17]"
 		>
 			<h2
 				class="mb-4 flex items-center gap-2 text-base font-semibold text-zinc-900 dark:text-zinc-100"
@@ -143,10 +143,10 @@
 					<button
 						type="button"
 						onclick={() => onProviderChange(p.id)}
-						class="flex flex-col rounded-lg border px-3 py-2.5 text-left text-sm transition
+						class="flex min-h-11 flex-col rounded-[7px] border px-3 py-2.5 text-left text-sm transition
 							{provider === p.id
 							? 'border-oba-400 bg-oba-50 text-oba-700 ring-1 ring-oba-400/30 dark:border-oba-600 dark:bg-oba-500/10 dark:text-oba-400'
-							: 'border-zinc-200 bg-zinc-50 text-zinc-600 hover:border-zinc-300 hover:bg-white dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700'}"
+							: 'border-[#cedadf] bg-[#f7fafb] text-[#64737a] hover:border-[#aebec5] hover:bg-white dark:border-[#34382f] dark:bg-[#22261e] dark:text-[#a5ab9f] dark:hover:bg-[#292d25]'}"
 					>
 						<span class="font-medium">{p.label}</span>
 					</button>
@@ -169,7 +169,7 @@
 							bind:value={apiKey}
 							placeholder={currentProvider.keyPlaceholder}
 							autocomplete="off"
-							class="w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 pr-10 font-mono text-sm focus:border-oba-400 focus:outline-none focus:ring-2 focus:ring-oba-400/20 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:placeholder:text-zinc-500"
+							class="min-h-11 w-full rounded-[7px] border border-[#cedadf] bg-[#f7fafb] px-3 py-2 pr-10 font-mono text-sm focus:border-oba-500 focus:bg-white focus:outline-none dark:border-[#34382f] dark:bg-[#22261e] dark:text-[#f0f2ed] dark:placeholder:text-[#858b80] dark:focus:border-oba-400 dark:focus:bg-[#1a1d17]"
 						/>
 						<button
 							type="button"
@@ -190,10 +190,10 @@
 							<button
 								type="button"
 								onclick={() => (toolMode = opt.id)}
-								class="flex flex-col rounded-lg border px-3 py-2.5 text-left text-sm transition
+								class="flex min-h-12 flex-col rounded-[7px] border px-3 py-2.5 text-left text-sm transition
 									{toolMode === opt.id
 									? 'border-oba-400 bg-oba-50 text-oba-700 ring-1 ring-oba-400/30 dark:border-oba-600 dark:bg-oba-500/10 dark:text-oba-400'
-									: 'border-zinc-200 bg-zinc-50 text-zinc-600 hover:border-zinc-300 hover:bg-white dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700'}"
+									: 'border-[#cedadf] bg-[#f7fafb] text-[#64737a] hover:border-[#aebec5] hover:bg-white dark:border-[#34382f] dark:bg-[#22261e] dark:text-[#a5ab9f] dark:hover:bg-[#292d25]'}"
 							>
 								<span class="font-medium">{opt.label}</span>
 								<span class="mt-0.5 text-xs opacity-70">{opt.desc}</span>
@@ -230,7 +230,7 @@
 					<select
 						id="model"
 						bind:value={model}
-						class="w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm focus:border-oba-400 focus:outline-none focus:ring-2 focus:ring-oba-400/20 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
+						class="min-h-11 w-full rounded-[7px] border border-[#cedadf] bg-[#f7fafb] px-3 py-2 text-sm focus:border-oba-500 focus:bg-white focus:outline-none dark:border-[#34382f] dark:bg-[#22261e] dark:text-[#f0f2ed] dark:focus:border-oba-400 dark:focus:bg-[#1a1d17]"
 					>
 						{#each liveModels ?? currentProvider.models as m}
 							<option value={m.id}>{m.label}</option>
@@ -254,7 +254,7 @@
 
 		<!-- oba-mcp server -->
 		<section
-			class="rounded-xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900"
+			class="rounded-[10px] border border-[#cedadf] bg-white p-6 shadow-[0_1px_3px_rgba(23,33,38,.07)] dark:border-[#34382f] dark:bg-[#1a1d17]"
 		>
 			<h2
 				class="mb-4 flex items-center gap-2 text-base font-semibold text-zinc-900 dark:text-zinc-100"
@@ -273,7 +273,7 @@
 							type="button"
 							onclick={testConnection}
 							disabled={testing}
-							class="flex items-center gap-1.5 rounded-lg border border-zinc-200 px-3 py-2 text-sm font-medium text-zinc-600 transition hover:bg-zinc-50 disabled:opacity-60 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+							class="flex min-h-10 items-center gap-1.5 rounded-[7px] border border-[#cedadf] px-3 py-2 text-sm font-semibold text-[#64737a] transition hover:bg-[#f7fafb] disabled:opacity-60 dark:border-[#34382f] dark:text-[#a5ab9f] dark:hover:bg-[#22261e]"
 						>
 							{#if testing}
 								<Icon name="loader" cls="h-3.5 w-3.5 animate-spin" />
@@ -306,7 +306,7 @@
 
 		<!-- Map -->
 		<section
-			class="rounded-xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900"
+			class="rounded-[10px] border border-[#cedadf] bg-white p-6 shadow-[0_1px_3px_rgba(23,33,38,.07)] dark:border-[#34382f] dark:bg-[#1a1d17]"
 		>
 			<h2
 				class="mb-4 flex items-center gap-2 text-base font-semibold text-zinc-900 dark:text-zinc-100"
@@ -318,10 +318,10 @@
 			<div class="space-y-2">
 				{#each MAP_STYLES as s}
 					<label
-						class="flex cursor-pointer items-center gap-3 rounded-lg border p-3 transition
+						class="flex min-h-11 cursor-pointer items-center gap-3 rounded-[7px] border p-3 transition
 						{mapStyle === s.id
 							? 'border-oba-400 bg-oba-50 dark:border-oba-600 dark:bg-oba-500/10'
-							: 'border-zinc-200 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800'}"
+							: 'border-[#cedadf] hover:bg-[#f7fafb] dark:border-[#34382f] dark:hover:bg-[#22261e]'}"
 					>
 						<input type="radio" bind:group={mapStyle} value={s.id} class="accent-oba-500" />
 						<span class="text-sm text-zinc-700 dark:text-zinc-300">{s.label}</span>
@@ -335,7 +335,7 @@
 						type="url"
 						bind:value={mapStyle}
 						placeholder="https://…/style.json"
-						class="w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 font-mono text-sm focus:border-oba-400 focus:outline-none focus:ring-2 focus:ring-oba-400/20 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
+						class="min-h-11 w-full rounded-[7px] border border-[#cedadf] bg-[#f7fafb] px-3 py-2 font-mono text-sm focus:border-oba-500 focus:bg-white focus:outline-none dark:border-[#34382f] dark:bg-[#22261e] dark:text-[#f0f2ed] dark:focus:border-oba-400 dark:focus:bg-[#1a1d17]"
 					/>
 				</div>
 			</div>
@@ -345,7 +345,7 @@
 		<div class="flex items-center justify-end gap-3">
 			<button
 				type="submit"
-				class="flex items-center gap-2 rounded-xl bg-oba-500 px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-oba-600 active:scale-95"
+				class="flex min-h-11 items-center gap-2 rounded-[7px] bg-[#4f7421] px-6 text-sm font-semibold text-white shadow-sm transition hover:bg-[#405c1e] active:scale-95 dark:bg-[#8ab64d] dark:text-[#11130f] dark:hover:bg-[#a8ca75]"
 			>
 				{#if saved}
 					<Icon name="check" cls="h-4 w-4" />
@@ -359,7 +359,7 @@
 
 	<!-- Quick start -->
 	<div
-		class="mt-8 rounded-xl border border-zinc-200 bg-zinc-50 p-5 dark:border-zinc-800 dark:bg-zinc-900/50"
+		class="mt-8 rounded-[10px] border border-[#cedadf] bg-[#eaf0f2] p-5 dark:border-[#34382f] dark:bg-[#22261e]"
 	>
 		<h3 class="mb-3 text-sm font-semibold text-zinc-700 dark:text-zinc-300">Quick start</h3>
 		<ol class="space-y-2.5 text-sm text-zinc-600 dark:text-zinc-400">

@@ -89,7 +89,11 @@
 				return;
 			}
 			const directions = routeData.polylines
-				.map((polyline) => ({ direction: routeName, encodedPolyline: polyline.encoded_polyline }))
+				.map((polyline) => ({
+					direction: routeName,
+					route_id: routeId,
+					encodedPolyline: polyline.encoded_polyline,
+				}))
 				.filter((line) => line.encodedPolyline);
 			if (directions.length) {
 				msg.toolCards = [
@@ -184,28 +188,38 @@
 </script>
 
 <svelte:head>
-	<title>Chat · OBA Transit</title>
+	<title>Chat · OneBusAway Assistant</title>
 </svelte:head>
 
-<div class="flex h-[calc(100vh-57px)] flex-col">
+<div class="flex h-[calc(100vh-58px)] flex-col">
 	<!-- ── Messages ─────────────────────────────────────────────── -->
-	<div class="flex-1 overflow-y-auto px-4 py-6">
-		<div class="mx-auto max-w-3xl space-y-5">
+	<div class="flex-1 overflow-y-auto px-5">
+		<div class="mx-auto max-w-[860px] space-y-6 py-8 pb-10">
 			<!-- Empty state -->
 			{#if chat.messages.length === 0 && !chat.loading}
-				<div class="mx-auto max-w-3xl py-8 sm:py-14">
-					<div class="mb-8 text-center">
-						<div
-							class="mx-auto mb-4 h-14 w-14 overflow-hidden rounded-xl ring-1 ring-zinc-200 dark:ring-zinc-800"
+				<div class="pt-6 sm:pt-8">
+					<div class="mb-7">
+						<h1
+							class="oba-heading m-0 text-[36px] font-medium leading-tight tracking-[-0.012em] sm:text-[41px]"
 						>
-							<img src="/oba-mcp.png" alt="OBA" class="h-full w-full object-cover" />
-						</div>
-						<h2 class="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
-							onebusaway-transit-asssit
-						</h2>
-						<p class="mx-auto mt-2 max-w-md text-sm leading-6 text-zinc-500 dark:text-zinc-400">
-							Ask about agencies, routes, stops, schedules, and live arrivals.
+							Where are you headed?
+						</h1>
+						<p
+							class="mt-2 max-w-[54ch] text-base leading-relaxed text-[#64737a] dark:text-[#a5ab9f]"
+						>
+							Ask about nearby stops, live arrivals, routes and schedules. Track a bus and I'll tell
+							you when it's close.
 						</p>
+					</div>
+
+					<div class="mb-2.5 flex items-baseline justify-between gap-4">
+						<span
+							class="text-[10.5px] font-bold uppercase tracking-[0.1em] text-[#7d8377] dark:text-[#858b80]"
+							>Shortcuts</span
+						>
+						<span class="hidden text-xs text-[#7d8377] dark:text-[#858b80] sm:inline"
+							>Ask about any OneBusAway-supported area</span
+						>
 					</div>
 
 					<div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -213,17 +227,17 @@
 							<button
 								type="button"
 								onclick={() => submit(s.text)}
-								class="group flex min-h-14 items-center gap-3 rounded-xl border border-zinc-200 bg-white px-3.5 py-3 text-left text-sm text-zinc-700 transition hover:border-oba-300 hover:bg-oba-50 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 dark:hover:border-zinc-700 dark:hover:bg-zinc-900 dark:hover:text-zinc-100"
+								class="group flex min-h-14 items-center gap-3 rounded-[10px] border border-[#cedadf] bg-white px-3.5 py-3 text-left text-[14.5px] text-[#172126] shadow-[0_1px_3px_rgba(23,33,38,.07)] transition hover:border-[#78aa37] hover:bg-[#edf3f5] dark:border-[#34382f] dark:bg-[#1a1d17] dark:text-[#f0f2ed] dark:hover:border-[#8ab64d] dark:hover:bg-[#22261e]"
 							>
 								<span
-									class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-oba-50 text-oba-600 dark:bg-zinc-900 dark:text-oba-400"
+									class="flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-[5px] bg-[#f1f7e8] text-[#4f7421] dark:bg-[#304619]/50 dark:text-[#a8ca75]"
 								>
 									<Icon name={s.icon} cls="h-4 w-4" />
 								</span>
 								<span class="flex-1 leading-5">{s.text}</span>
 								<Icon
 									name="chevron-right"
-									cls="h-4 w-4 shrink-0 text-zinc-300 group-hover:text-oba-500 dark:text-zinc-600"
+									cls="h-4 w-4 shrink-0 text-[#7d8377] group-hover:text-[#628e29] dark:text-[#858b80] dark:group-hover:text-[#a8ca75]"
 								/>
 							</button>
 						{/each}
@@ -237,26 +251,30 @@
 					<!-- User bubble -->
 					<div class="flex justify-end">
 						<div
-							class="max-w-[80%] rounded-2xl rounded-tr-sm bg-oba-500 px-4 py-2.5 text-sm leading-relaxed text-white shadow-sm"
+							class="max-w-[75%] rounded-[10px] border border-[#cedadf] bg-[#eaf0f2] px-4 py-3 text-[15px] leading-relaxed dark:border-[#34382f] dark:bg-[#22261e]"
 						>
+							<div
+								class="mb-1 text-[10.5px] font-bold uppercase tracking-[0.1em] text-[#7d8377] dark:text-[#858b80]"
+							>
+								You
+							</div>
 							{msg.text}
 						</div>
 					</div>
 				{:else}
 					<!-- Assistant bubble -->
-					<div class="flex gap-3">
+					<div>
 						<div
-							class="mt-0.5 h-7 w-7 shrink-0 overflow-hidden rounded-full shadow-sm ring-2 ring-oba-200 dark:ring-oba-900"
+							class="mb-2 text-[10.5px] font-bold uppercase tracking-[0.1em] text-[#7d8377] dark:text-[#858b80]"
 						>
-							<img src="/oba-mcp.png" alt="OBA" class="h-full w-full object-cover" />
+							OneBusAway
 						</div>
-
-						<div class="flex-1 space-y-2">
+						<div class="space-y-3">
 							<!-- Tool cards -->
 							{#each orderedToolCards(msg.toolCards ?? []) as card}
 								{#if card.type === 'map_loading'}
 									<div
-										class="flex h-[220px] items-center justify-center rounded-xl border border-zinc-200 bg-white/80 text-sm text-zinc-600 shadow-sm dark:border-zinc-700 dark:bg-zinc-950/80 dark:text-zinc-300"
+										class="flex h-[220px] items-center justify-center rounded-[10px] border border-[#cedadf] bg-white/80 text-sm text-[#64737a] shadow-sm dark:border-[#34382f] dark:bg-[#1a1d17]/80 dark:text-[#a5ab9f]"
 										aria-live="polite"
 									>
 										<Icon name="loader" cls="mr-2 h-4 w-4 animate-spin text-oba-600" />
@@ -314,20 +332,24 @@
 									<!-- Only offer routes that are not already visible on a map. -->
 									{#if card.routes.some((route) => !isRouteDrawn(route.id))}
 										<div
-											class="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-900"
+											class="overflow-hidden rounded-[10px] border border-[#cedadf] bg-white shadow-sm dark:border-[#34382f] dark:bg-[#1a1d17]"
 										>
-											<div class="border-b border-zinc-100 px-4 py-2 dark:border-zinc-800">
-												<p class="text-xs font-semibold uppercase tracking-wide text-zinc-400">
+											<div
+												class="border-b border-[#dfe7ea] bg-[#f7fafb] px-4 py-2 dark:border-[#292d25] dark:bg-[#20231d]"
+											>
+												<p
+													class="text-[10.5px] font-bold uppercase tracking-[0.1em] text-[#7d8377] dark:text-[#858b80]"
+												>
 													Draw route on map
 												</p>
 											</div>
-											<div class="flex flex-col divide-y divide-zinc-100 dark:divide-zinc-800">
+											<div class="flex flex-col divide-y divide-[#e8e9e5] dark:divide-[#292d25]">
 												{#each card.routes as route}
 													{#if !isRouteDrawn(route.id)}
 														<div class="flex items-center justify-between px-4 py-2.5">
 															<div class="min-w-0">
 																<span
-																	class="text-sm font-semibold text-zinc-800 dark:text-zinc-100"
+																	class="text-sm font-semibold text-[#1d211a] dark:text-[#f0f2ed]"
 																>
 																	{#if route.color}
 																		<span
@@ -338,7 +360,8 @@
 																	{route.name}
 																</span>
 																{#if route.description}
-																	<span class="ml-2 truncate text-xs text-zinc-400"
+																	<span
+																		class="ml-2 truncate text-xs text-[#7d8377] dark:text-[#858b80]"
 																		>{route.description}</span
 																	>
 																{/if}
@@ -352,7 +375,7 @@
 																	type="button"
 																	onclick={() => drawRoute(route.id, route.name, route.color, msg)}
 																	disabled={drawingRoutes.has(route.id)}
-																	class="ml-3 flex shrink-0 items-center gap-1.5 rounded-lg border border-oba-200 bg-oba-50 px-3 py-1.5 text-xs font-medium text-oba-700 transition hover:bg-oba-100 disabled:cursor-wait disabled:opacity-60 dark:border-oba-800 dark:bg-oba-500/10 dark:text-oba-400 dark:hover:bg-oba-500/20"
+																	class="ml-3 flex min-h-9 shrink-0 items-center gap-1.5 rounded-[7px] border border-oba-300 bg-oba-50 px-3 text-xs font-semibold text-oba-800 transition hover:bg-oba-100 disabled:cursor-wait disabled:opacity-60 dark:border-oba-700 dark:bg-oba-900/40 dark:text-oba-300 dark:hover:bg-oba-900/70"
 																>
 																	{#if drawingRoutes.has(route.id)}
 																		<Icon name="loader" cls="h-3 w-3 animate-spin" />
@@ -384,20 +407,26 @@
 								{:else if card.type === 'arrivals'}
 									{#if card.stop_id}
 										<div
-											class="h-[300px] overflow-hidden rounded-xl border border-zinc-200 shadow-sm dark:border-zinc-700"
+											class="h-[min(620px,65vh)] min-h-[380px] overflow-hidden rounded-[10px] border border-[#cedadf] shadow-sm dark:border-[#34382f]"
 										>
 											<ArrivalsPanel
 												stopId={card.stop_id}
 												stopName={card.stop_name}
 												initialArrivals={card.arrivals ?? []}
+												minutesBefore={card.arrival_window?.minutes_before ?? 0}
+												minutesAfter={card.arrival_window?.minutes_after ?? 60}
 											/>
 										</div>
 									{:else}
 										<div
-											class="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-900"
+											class="overflow-hidden rounded-[10px] border border-[#cedadf] bg-white shadow-sm dark:border-[#34382f] dark:bg-[#1a1d17]"
 										>
-											<div class="border-b border-zinc-100 px-4 py-2 dark:border-zinc-800">
-												<p class="text-xs font-semibold uppercase tracking-wide text-zinc-400">
+											<div
+												class="border-b border-[#dfe7ea] bg-[#f7fafb] px-4 py-2 dark:border-[#292d25] dark:bg-[#20231d]"
+											>
+												<p
+													class="text-[10.5px] font-bold uppercase tracking-[0.1em] text-[#7d8377] dark:text-[#858b80]"
+												>
 													Live arrivals · {card.stop_name}
 												</p>
 											</div>
@@ -417,11 +446,9 @@
 							<!-- Markdown text -->
 							{#if msg.text}
 								{@const isStreaming = chat.streaming && i === chat.messages.length - 1}
-								<div
-									class="rounded-2xl rounded-tl-sm bg-white px-4 py-3 shadow-sm dark:bg-zinc-900"
-								>
+								<div class="max-w-[62ch]">
 									<div
-										class="md text-sm leading-relaxed text-zinc-800 dark:text-zinc-200 {isStreaming
+										class="md text-[15.5px] leading-[1.6] text-[#172126] dark:text-[#f0f2ed] {isStreaming
 											? 'streaming-cursor'
 											: ''}"
 									>
@@ -434,7 +461,7 @@
 							<!-- Map suggestion pill -->
 							{#if msg.mapSuggestion}
 								<div
-									class="flex items-center gap-2.5 rounded-xl border border-oba-200 bg-oba-50 px-3 py-2.5 dark:border-oba-800 dark:bg-oba-500/10"
+									class="flex items-center gap-2.5 rounded-[7px] border border-oba-200 bg-oba-50 px-3 py-2.5 dark:border-oba-800 dark:bg-oba-900/35"
 								>
 									<svg
 										xmlns="http://www.w3.org/2000/svg"
@@ -465,7 +492,7 @@
 												addMarkersToMap(msg, msg.mapSuggestion.markers);
 												msg.mapSuggestion = null;
 											}}
-											class="rounded-lg bg-oba-500 px-3 py-1 text-xs font-semibold text-white transition hover:bg-oba-600 active:scale-95"
+											class="min-h-8 rounded-[5px] bg-oba-700 px-3 text-xs font-semibold text-white transition hover:bg-oba-800 active:scale-95 dark:bg-oba-400 dark:text-[#11130f]"
 										>
 											Show
 										</button>
@@ -474,7 +501,7 @@
 											onclick={() => {
 												msg.mapSuggestion = null;
 											}}
-											class="rounded-lg border border-oba-200 px-2 py-1 text-xs text-oba-600 transition hover:bg-oba-100 dark:border-oba-800 dark:text-oba-400 dark:hover:bg-oba-500/20"
+											class="min-h-8 rounded-[5px] border border-oba-300 px-2 text-xs text-oba-700 transition hover:bg-oba-100 dark:border-oba-700 dark:text-oba-300 dark:hover:bg-oba-900/50"
 										>
 											Dismiss
 										</button>
@@ -488,13 +515,15 @@
 
 			<!-- Loading bubble -->
 			{#if chat.loading}
-				<div class="flex gap-3">
+				<div>
 					<div
-						class="mt-0.5 h-7 w-7 shrink-0 overflow-hidden rounded-full shadow-sm ring-2 ring-oba-200 dark:ring-oba-900"
+						class="mb-2 text-[10.5px] font-bold uppercase tracking-[0.1em] text-[#7d8377] dark:text-[#858b80]"
 					>
-						<img src="/oba-mcp.png" alt="OBA" class="h-full w-full object-cover" />
+						OneBusAway
 					</div>
-					<div class="rounded-2xl rounded-tl-sm bg-white px-3 py-2 shadow-sm dark:bg-zinc-900">
+					<div
+						class="max-w-[560px] rounded-[10px] border border-[#cedadf] bg-white px-3 py-2 dark:border-[#34382f] dark:bg-[#1a1d17]"
+					>
 						<BusLoader size="sm" />
 					</div>
 				</div>
@@ -520,12 +549,14 @@
 	</div>
 
 	<!-- ── Input bar ──────────────────────────────────────────────── -->
-	<div class="border-t border-zinc-200 bg-white px-4 py-3 dark:border-zinc-800 dark:bg-zinc-950">
-		<div class="mx-auto max-w-3xl">
+	<div
+		class="border-t-2 border-[#cedadf] bg-white px-5 py-3 dark:border-[#34382f] dark:bg-[#1a1d17]"
+	>
+		<div class="mx-auto max-w-[860px]">
 			<!-- History controls -->
 			{#if chat.messages.length > 0}
 				<div class="mb-2 flex items-center justify-between">
-					<span class="text-xs text-zinc-400 dark:text-zinc-600">
+					<span class="text-xs text-[#7d8377] dark:text-[#858b80]">
 						{chat.messages.length} message{chat.messages.length === 1 ? '' : 's'} · saved locally
 					</span>
 					<button
@@ -533,7 +564,7 @@
 						onclick={() => {
 							if (confirm('Clear chat history?')) chat.clear();
 						}}
-						class="text-xs text-zinc-400 transition hover:text-red-500 dark:text-zinc-600 dark:hover:text-red-400"
+						class="min-h-8 text-xs text-[#7d8377] underline decoration-transparent underline-offset-4 transition hover:text-red-600 hover:decoration-current dark:text-[#858b80] dark:hover:text-red-400"
 					>
 						Clear history
 					</button>
@@ -541,9 +572,7 @@
 			{/if}
 
 			<!-- Textarea + send -->
-			<div
-				class="flex items-end gap-2 rounded-2xl border border-zinc-200 bg-zinc-50 p-2 shadow-sm transition focus-within:border-oba-400 focus-within:bg-white focus-within:ring-2 focus-within:ring-oba-400/20 dark:border-zinc-700 dark:bg-zinc-900 dark:focus-within:bg-zinc-900"
-			>
+			<div class="flex items-end gap-2">
 				<textarea
 					bind:this={textarea}
 					bind:value={chat.draft}
@@ -552,8 +581,8 @@
 					placeholder="Ask about buses, stops, schedules…"
 					rows="1"
 					disabled={chat.loading}
-					class="flex-1 resize-none bg-transparent px-2 py-1 text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-none disabled:opacity-60 dark:text-zinc-100 dark:placeholder:text-zinc-500"
-					style="min-height: 36px; max-height: 140px;"
+					class="min-h-12 flex-1 resize-none rounded-[7px] border border-[#cedadf] bg-[#eaf0f2] px-3.5 py-3 text-[15px] text-[#172126] placeholder:text-[#7b898f] focus:border-[#78aa37] focus:bg-white focus:outline-none disabled:opacity-60 dark:border-[#34382f] dark:bg-[#22261e] dark:text-[#f0f2ed] dark:placeholder:text-[#858b80] dark:focus:border-[#8ab64d] dark:focus:bg-[#1a1d17]"
+					style="max-height: 140px;"
 				></textarea>
 				{#if chat.loading || chat.streaming}
 					<!-- Stop button — visible while thinking or streaming -->
@@ -561,7 +590,7 @@
 						type="button"
 						onclick={() => chat.abort()}
 						title="Stop response"
-						class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-red-500 text-white transition hover:bg-red-600 active:scale-95 dark:bg-red-600 dark:hover:bg-red-500"
+						class="flex h-12 min-w-12 shrink-0 items-center justify-center rounded-[7px] bg-red-600 px-4 text-white transition hover:bg-red-700 active:scale-95"
 					>
 						<Icon name="square" cls="h-3.5 w-3.5" />
 					</button>
@@ -570,7 +599,7 @@
 						type="button"
 						onclick={() => submit()}
 						disabled={chat.loading || !chat.draft.trim()}
-						class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-oba-500 text-white transition hover:bg-oba-600 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
+						class="flex h-12 min-w-12 shrink-0 items-center justify-center rounded-[7px] bg-[#4f7421] px-4 text-white transition hover:bg-[#405c1e] active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-[#8ab64d] dark:text-[#11130f] dark:hover:bg-[#a8ca75]"
 					>
 						{#if chat.loading}
 							<Icon name="loader" cls="h-4 w-4 animate-spin" />
@@ -581,7 +610,7 @@
 				{/if}
 			</div>
 
-			<p class="mt-1.5 text-center text-xs text-zinc-400 dark:text-zinc-600">
+			<p class="mt-1.5 text-center text-xs text-[#7d8377] dark:text-[#858b80]">
 				{settings.providerConfig?.label ?? 'AI'} ·
 				<a href="/settings" class="hover:text-oba-600 dark:hover:text-oba-400">Configure</a>
 			</p>

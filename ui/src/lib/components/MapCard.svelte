@@ -10,11 +10,21 @@
 	import { callTool } from '$lib/mcp.js';
 	import { items, unwrap } from '$lib/result.js';
 	import { tracking } from '$lib/tracking.svelte.js';
+	import { shouldPollMapVehicles } from '$lib/tracking-request.js';
+	import {
+		deduplicateVehicles,
+		hasVehiclePosition,
+		mergeTrackedVehicleUpdates,
+		replaceRefreshedVehicles,
+		vehicleFromArrival,
+		vehicleFromTripDetails,
+		vehicleKey,
+	} from '$lib/vehicles.js';
 	import ArrivalsPanel from './ArrivalsPanel.svelte';
 
 	/**
 	 * @typedef {{ lat: number, lon: number, name?: string, id?: string, is_current?: boolean }} Marker
-	 * @typedef {{ direction: string, stops?: Marker[], coordinates?: [number, number][], encodedPolyline?: string }} RouteDir
+	 * @typedef {{ direction: string, route_id?: string, stops?: Marker[], coordinates?: [number, number][], encodedPolyline?: string }} RouteDir
 	 * @typedef {{ lat: number, lon: number, vehicle_id?: string, trip_id?: string, route_id?: string, route_short_name?: string, headsign?: string, stops_away?: number, phase?: string, deviation_mins?: number }} Vehicle
 	 */
 
@@ -37,8 +47,31 @@
 		{ id: 'https://demotiles.maplibre.org/style.json', label: 'Minimal' },
 	];
 
-	// Route line colors — cycles through these for multi-direction routes
-	const LINE_COLORS = ['#4caf50', '#2196f3', '#ff9800', '#e91e63', '#9c27b0'];
+	// Route colors stay distinct from the OneBusAway brand color. These are used
+	// consistently by linework, legends, stop outlines, and vehicle badges.
+	const LINE_COLORS = ['#e46f5b', '#9278d0', '#377fba', '#d18a2e', '#318a78', '#b5548d'];
+
+	function routeColorForVehicle(vehicle) {
+		const routeName = String(vehicle.route_short_name ?? vehicle.route_id ?? '');
+		const matchIndex = routeName
+			? routeLegend.findIndex(({ label }) =>
+					String(label).toLowerCase().includes(routeName.toLowerCase()),
+				)
+			: -1;
+		if (matchIndex >= 0) return routeLegend[matchIndex].color;
+		let hash = 0;
+		for (const char of routeName) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+		return LINE_COLORS[hash % LINE_COLORS.length];
+	}
+
+	function escapeHTML(value) {
+		return String(value ?? '')
+			.replaceAll('&', '&amp;')
+			.replaceAll('<', '&lt;')
+			.replaceAll('>', '&gt;')
+			.replaceAll('"', '&quot;')
+			.replaceAll("'", '&#039;');
+	}
 
 	function decodePolyline(encoded) {
 		const coordinates = [];
@@ -94,6 +127,7 @@
 	let selectedStop = $state(null);
 	let mapLoading = $state(true);
 	let vehicleRefreshId = null; // plain var — not reactive
+	let vehicleRefreshRequest = 0;
 	let vehicleRebuildRaf = null;
 	let lastVehiclesProp = null;
 
@@ -101,6 +135,9 @@
 	const isTracked = $derived(
 		vehicleTripIds.length > 0 &&
 			vehicleTripIds.some((id) => tracking.trackers.some((t) => t.trip_id === id)),
+	);
+	const hasStopTracker = $derived(
+		!!stopId && tracking.trackers.some((tracker) => tracker.stop_id === stopId),
 	);
 	const routeLegend = $derived.by(() => {
 		const uniqueRoutes = new Map();
@@ -115,6 +152,11 @@
 		}
 		return [...uniqueRoutes.values()];
 	});
+	const primaryStop = $derived(
+		markers.find((marker) => stopId && marker.id === stopId) ??
+			markers.find((marker) => marker.is_current) ??
+			null,
+	);
 
 	function onFullscreenChange() {
 		isFullscreen = !!document.fullscreenElement;
@@ -136,6 +178,14 @@
 		map?.setStyle(url);
 	}
 
+	function zoomIn() {
+		map?.zoomIn({ duration: 220 });
+	}
+
+	function zoomOut() {
+		map?.zoomOut({ duration: 220 });
+	}
+
 	function clearRouteLayers() {
 		for (const id of routeLayerIds) {
 			if (map.getLayer(id)) map.removeLayer(id);
@@ -144,26 +194,21 @@
 		routeLayerIds = [];
 	}
 
-	function busInnerHTML(color, isTracked) {
-		let html = '';
-		if (isTracked) {
-			html += `<svg style="position:absolute;inset:-6px;width:46px;height:46px;pointer-events:none;" viewBox="0 0 46 46" fill="none"><circle cx="23" cy="23" r="18" stroke="${color}" stroke-width="2.5" opacity="0.7"><animate attributeName="r" values="15;19;15" dur="1.5s" repeatCount="indefinite"/><animate attributeName="opacity" values="0.7;0.15;0.7" dur="1.5s" repeatCount="indefinite"/></circle></svg>`;
-		}
-		html += `<svg width="34" height="34" viewBox="0 0 34 34" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Vehicle">
-			<circle cx="17" cy="17" r="11.5" fill="${color}" stroke="white" stroke-width="1.5"/>
-			<path d="M12.25 23.5v-8.1c0-2.55 1.65-4.15 4.75-4.15s4.75 1.6 4.75 4.15v8.1h-1v1.15c0 .4-.32.7-.7.7h-.6a.7.7 0 0 1-.7-.7V23.5h-3.5v1.15c0 .4-.32.7-.7.7h-.6a.7.7 0 0 1-.7-.7V23.5h-1Z" fill="white"/>
-			<rect x="15.05" y="12.55" width="3.9" height="1.15" rx=".5" fill="${color}"/>
-			<path d="M14.1 15h5.8c.4 0 .7.3.75.7l.35 3.15H13l.35-3.15c.05-.4.35-.7.75-.7Z" fill="${color}"/>
-			<circle cx="14.35" cy="21.25" r=".85" fill="${color}"/><circle cx="19.65" cy="21.25" r=".85" fill="${color}"/>
-		</svg>`;
-		return html;
+	function busInnerHTML(vehicle, color, isTracked) {
+		const route = escapeHTML(vehicle.route_short_name ?? 'BUS');
+		const bearing = Number.isFinite(vehicle.bearing) ? vehicle.bearing : 0;
+		return `<span class="oba-vehicle-arrow" style="--vehicle-color:${color};transform:translateX(-50%) rotate(${bearing}deg)"></span>
+			<span class="oba-vehicle-body" style="--vehicle-color:${color}">
+				<span class="oba-vehicle-route">${route}</span>
+			</span>
+			${isTracked ? '<span class="oba-vehicle-tracking">Tracked</span>' : ''}`;
 	}
 
 	function makeBusElement(v, isTracked = false) {
-		const color = isTracked ? '#f59e0b' : '#16a34a';
+		const color = routeColorForVehicle(v);
 		const el = document.createElement('div');
-		el.style.cssText = `cursor:pointer;user-select:none;line-height:0;position:relative;width:34px;height:34px;filter:drop-shadow(0 ${isTracked ? '2px 5px rgba(245,158,11,0.55)' : '1px 3px rgba(0,0,0,0.32)'});`;
-		el.innerHTML = busInnerHTML(color, isTracked);
+		el.className = `oba-vehicle-marker${isTracked ? ' is-tracked' : ''}`;
+		el.innerHTML = busInnerHTML(v, color, isTracked);
 		return el;
 	}
 
@@ -235,51 +280,54 @@
 		return nearest;
 	}
 
-	// Snap a [lon, lat] position to the nearest route line within 400 m.
-	// OBA GPS reports can drift 150-300 m from the shape; 400 m catches real
-	// noise while still rejecting vehicles that are genuinely on a different road.
-	function snapToRoute(lngLat) {
-		let best = null;
-		for (const dir of routes) {
-			const coords = routeCoordinates(dir);
-			if (coords.length < 2) continue;
-			const nearest = nearestPointOnRoute(lngLat, coords);
-			if (!nearest) continue;
-			if (!best || nearest.distM < best.distM) best = nearest;
-		}
-		return best && best.distM <= 400 ? best.point : null;
+	const SNAP_DISTANCE_M = 400;
+
+	function routeAliases(value) {
+		if (value == null) return [];
+		const id = String(value).trim().toLowerCase();
+		if (!id) return [];
+		return [...new Set([id, id.split('_').at(-1)])];
 	}
 
-	// Snap using the vehicle's own route when we can identify it; falls back
-	// to nearest-of-any-route. Prevents a bus getting glued to a parallel line
-	// (e.g. two routes on the same street) it doesn't actually serve.
+	function directionMatchesVehicle(direction, vehicleIds) {
+		return [direction.route_id, direction.direction]
+			.flatMap(routeAliases)
+			.some((id) => vehicleIds.has(id));
+	}
+
+	// Snap only to the vehicle's route. Once matching geometry exists, keep the
+	// marker on it even when an upstream GPS update is unusually far away.
 	function snapVehicleToRoute(vehicle, lngLat) {
 		const coords = routeCoordinatesForVehicle(vehicle, lngLat);
 		if (coords) {
 			const nearest = nearestPointOnRoute(lngLat, coords);
-			if (nearest && nearest.distM <= 400) return nearest.point;
+			if (nearest) return nearest.point;
 		}
-		return snapToRoute(lngLat);
+		return null;
 	}
 
 	function routeCoordinatesForVehicle(vehicle, target, from = null) {
-		const shortId = String(vehicle.route_id ?? '')
-			.split('_')
-			.at(-1);
 		const ids = new Set(
-			[vehicle.route_id, vehicle.route_short_name, shortId].filter(Boolean).map(String),
+			[vehicle.active_route_id, vehicle.route_id, vehicle.route_short_name].flatMap(routeAliases),
 		);
+		const candidates = routes
+			.map((direction) => ({ direction, coordinates: routeCoordinates(direction) }))
+			.filter(({ coordinates }) => coordinates.length >= 2);
+		const matching = candidates.filter(({ direction }) => directionMatchesVehicle(direction, ids));
+		// Old saved single-route cards have no route_id metadata. With only one
+		// route group there is no unrelated line to choose, so they remain usable.
+		const routeGroups = new Set(
+			candidates.map(({ direction }) => direction.route_id ?? direction.direction ?? ''),
+		);
+		const eligible = matching.length ? matching : routeGroups.size <= 1 ? candidates : [];
 		let best = null;
-		for (const direction of routes) {
-			const coordinates = routeCoordinates(direction);
-			if (coordinates.length < 2) continue;
-			const match = ids.has(String(direction.direction));
+		for (const { coordinates } of eligible) {
 			const targetProjection = nearestPointOnRoute(target, coordinates);
 			const fromProjection = from ? nearestPointOnRoute(from, coordinates) : null;
 			// WayFinder chooses the shape minimizing the combined distance from both
 			// endpoints. Using only the new GPS point can jump to a parallel/opposite
 			// shape and becomes especially obvious after zooming in.
-			const score = targetProjection.distM + (fromProjection?.distM ?? 0) + (match ? 0 : 500);
+			const score = targetProjection.distM + (fromProjection?.distM ?? 0);
 			if (!best || score < best.score) best = { coordinates, score };
 		}
 		return best?.coordinates ?? null;
@@ -292,7 +340,7 @@
 		const end = nearestPointOnRoute(target, coordinates);
 		// 400 m threshold — generous enough for OBA GPS noise, still rejects vehicles
 		// that are genuinely on a different road
-		if (!start || !end || start.distM > 400 || end.distM > 400) return null;
+		if (!start || !end || start.distM > SNAP_DISTANCE_M || end.distM > SNAP_DISTANCE_M) return null;
 
 		const startProgress = start.index + start.fraction;
 		const endProgress = end.index + end.fraction;
@@ -303,7 +351,7 @@
 		// Path ends at the on-route projection, NOT at raw GPS. Ending at `target`
 		// (raw GPS) makes the marker rest on a nearby house/parking lot ~10-30 m off
 		// the road — visible immediately when the user zooms in.
-		const path = [from, start.point, ...middle, end.point];
+		const path = [start.point, ...middle, end.point];
 		return path.filter(
 			(point, index) => index === 0 || pointDistance(point, path[index - 1]) > 0.000001,
 		);
@@ -356,61 +404,52 @@
 		return parts.join(' · ') || v.vehicle_id || 'Vehicle';
 	}
 
-	// A physical bus can appear on multiple trips (interlined service, OBA quirks).
-	// Deduplicate by vehicle_id: prefer the entry that has GPS coordinates.
-	function deduplicateVehicles(vehicles) {
-		const byVehicleId = new Map();
-		const noId = [];
-		for (const v of vehicles) {
-			if (!v.vehicle_id) {
-				noId.push(v);
-				continue;
-			}
-			const existing = byVehicleId.get(v.vehicle_id);
-			if (!existing || (!existing.lat && v.lat)) byVehicleId.set(v.vehicle_id, v);
-		}
-		return [...byVehicleId.values(), ...noId];
-	}
-
 	// Public entry: coalesces multiple invocations that hit within the same frame.
 	// When Track fires, `tracking.trackers`, `stopArrivals[stopId]`, and `localVehicles`
 	// can all reassign in the same microtask batch — without coalescing this ran the
 	// expensive DOM/snap loop N times back-to-back and blocked the main thread long
 	// enough that clicks stopped registering.
-	function buildVehicleMarkers(_trackedIds = new Set()) {
+	function buildVehicleMarkers() {
 		if (!map || !maplibregl) return;
 		if (vehicleRebuildRaf != null) return;
 		vehicleRebuildRaf = requestAnimationFrame(() => {
 			vehicleRebuildRaf = null;
 			// Re-read tracked IDs at fire time so we reflect the latest tracker state,
 			// not the state captured when the first cascading effect scheduled us.
-			const latest = new Set(tracking.trackers.map((t) => t.trip_id));
-			_buildVehicleMarkersNow(latest);
+			_buildVehicleMarkersNow([...tracking.trackers]);
 		});
 	}
 
-	function _buildVehicleMarkersNow(trackedIds) {
+	function _buildVehicleMarkersNow(activeTrackers) {
 		if (!map || !maplibregl) return;
 		const seen = new Set();
 
 		for (const v of deduplicateVehicles(localVehicles)) {
-			const key = v.trip_id || v.vehicle_id;
-			if (!key || !v.lat || !v.lon) continue;
+			const key = vehicleKey(v);
+			if (!key || !hasVehiclePosition(v)) continue;
 			seen.add(key);
 			const lngLat = [v.lon, v.lat];
 			const popupText = vehiclePopupText(v);
 
-			const isTracked = trackedIds.has(key);
+			const isTracked = activeTrackers.some(
+				(tracker) =>
+					(v.active_trip_id && tracker.active_trip_id === v.active_trip_id) ||
+					(v.vehicle_id && tracker.vehicle_id === v.vehicle_id) ||
+					tracker.trip_id === v.trip_id,
+			);
+			const color = routeColorForVehicle(v);
+			const visualKey = `${v.route_short_name ?? ''}|${v.bearing ?? ''}|${color}|${isTracked}`;
 			const targetSnapped = snapVehicleToRoute(v, lngLat) ?? lngLat;
 			if (vehicleMarkerMap.has(key)) {
 				const entry = vehicleMarkerMap.get(key);
 				const { marker, popup } = entry;
+				const trackingChanged = entry.isTracked !== isTracked;
 				// Update visual in-place if tracked state changed
-				if (entry.isTracked !== isTracked) {
-					const color = isTracked ? '#f59e0b' : '#16a34a';
-					entry.el.innerHTML = busInnerHTML(color, isTracked);
-					entry.el.style.filter = `drop-shadow(0 ${isTracked ? '2px 5px rgba(245,158,11,0.55)' : '1px 3px rgba(0,0,0,0.32)'})`;
+				if (entry.visualKey !== visualKey) {
+					entry.el.className = `oba-vehicle-marker${isTracked ? ' is-tracked' : ''}`;
+					entry.el.innerHTML = busInnerHTML(v, color, isTracked);
 					entry.isTracked = isTracked;
+					entry.visualKey = visualKey;
 				}
 				// Compare the incoming GPS position, not its snapped projection. Several GPS
 				// reports can project to the same point on a coarse route shape; comparing
@@ -419,12 +458,14 @@
 				const prev = entry.sourceLngLat;
 				const destChanged =
 					!prev || Math.abs(prev[0] - lngLat[0]) > 1e-7 || Math.abs(prev[1] - lngLat[1]) > 1e-7;
-				if (destChanged) {
+				if (destChanged || trackingChanged) {
 					entry.sourceLngLat = lngLat;
 					entry.targetLngLat = targetSnapped;
 					const curr = marker.getLngLat();
 					const path = routePathForVehicle(v, [curr.lng, curr.lat], lngLat);
 					if (path?.length > 1) animateAlongRoute(entry, path);
+					// Never draw a straight diagonal when a valid route projection exists.
+					else if (targetSnapped !== lngLat) marker.setLngLat(targetSnapped);
 					else animateTo(entry, targetSnapped[1], targetSnapped[0], 1800);
 				}
 				if (popup) popup.setLngLat(targetSnapped).setText(popupText);
@@ -451,6 +492,7 @@
 					popup,
 					el,
 					isTracked,
+					visualKey,
 					sourceLngLat: lngLat,
 					targetLngLat: targetSnapped,
 					_animRaf: null,
@@ -459,65 +501,47 @@
 		}
 
 		// Remove markers for vehicles no longer in the list
-		for (const [key, { marker, popup }] of vehicleMarkerMap) {
+		for (const [key, entry] of vehicleMarkerMap) {
 			if (!seen.has(key)) {
-				popup?.remove();
-				marker.remove();
+				if (entry._animRaf) cancelAnimationFrame(entry._animRaf);
+				entry.popup?.remove();
+				entry.marker.remove();
 				vehicleMarkerMap.delete(key);
 			}
 		}
 	}
 
 	async function refreshVehiclePositions(tripIds = vehicleTripIds) {
+		const request = ++vehicleRefreshRequest;
 		if (agencyId) {
 			try {
 				const result = await callTool('get_vehicles_for_agency', { agency_id: agencyId });
 				const fleet = items(result);
-				if (fleet.length) {
-					localVehicles = fleet.filter((v) => v.lat && v.lon);
+				if (request === vehicleRefreshRequest) {
+					localVehicles = deduplicateVehicles(fleet);
 				}
 			} catch {}
 		} else if (tripIds?.length) {
-			const ids = tripIds.slice(0, 5);
+			const ids = tripIds.slice(0, 6);
 			const settled = await Promise.allSettled(
 				ids.map((id) => callTool('get_trip_details', { trip_id: id, include_schedule: false })),
 			);
-			const updates = settled.flatMap((r) => {
+			const refreshedTripIds = new Set();
+			const updates = settled.flatMap((r, index) => {
 				if (r.status !== 'fulfilled') return [];
+				refreshedTripIds.add(ids[index]);
 				const d = unwrap(r.value);
-				return d?.lat != null && d?.lon != null ? [d] : [];
+				const vehicle = vehicleFromTripDetails(
+					{ ...d, trip_id: d?.trip_id ?? ids[index] },
+					tripInfo[d?.trip_id ?? ids[index]],
+				);
+				return vehicle ? [vehicle] : [];
 			});
-			if (updates.length) {
-				// Merge: update existing vehicles' positions OR add vehicles that weren't in arrivals GPS
-				const merged = [...localVehicles];
-				for (const upd of updates) {
-					const idx = merged.findIndex(
-						(v) => v.trip_id === upd.trip_id || v.vehicle_id === upd.vehicle_id,
-					);
-					if (idx >= 0) {
-						merged[idx] = {
-							...merged[idx],
-							lat: upd.lat,
-							lon: upd.lon,
-							bearing: upd.bearing ?? merged[idx].bearing,
-						};
-					} else {
-						// Use trip_info for route badge label when GPS wasn't in arrivals data
-						const info = tripInfo[upd.trip_id] ?? {};
-						merged.push({
-							lat: upd.lat,
-							lon: upd.lon,
-							trip_id: upd.trip_id,
-							vehicle_id: upd.vehicle_id,
-							route_id: upd.route_id,
-							bearing: upd.bearing ?? null,
-							route_short_name: info.route_short_name ?? null,
-							headsign: info.headsign ?? null,
-							stops_away: null,
-						});
-					}
-				}
-				localVehicles = merged;
+			if (request === vehicleRefreshRequest) {
+				const projectedUpdates = updates.filter((vehicle) =>
+					routeCoordinatesForVehicle(vehicle, [vehicle.lon, vehicle.lat]),
+				);
+				localVehicles = replaceRefreshedVehicles(localVehicles, projectedUpdates, refreshedTripIds);
 			}
 		}
 	}
@@ -558,7 +582,11 @@
 			}
 			const color = colorByRoute.get(colorKey);
 			const srcId = `route-${i}`;
+			const casingId = `route-casing-${i}`;
 			const layerId = `route-line-${i}`;
+			const routeCasing = document.documentElement.classList.contains('dark')
+				? '#11130f'
+				: '#ffffff';
 
 			map.addSource(srcId, {
 				type: 'geojson',
@@ -571,23 +599,30 @@
 				},
 			});
 			map.addLayer({
+				id: casingId,
+				type: 'line',
+				source: srcId,
+				layout: { 'line-join': 'round', 'line-cap': 'round' },
+				paint: { 'line-color': routeCasing, 'line-width': 9, 'line-opacity': 0.92 },
+			});
+			map.addLayer({
 				id: layerId,
 				type: 'line',
 				source: srcId,
 				layout: { 'line-join': 'round', 'line-cap': 'round' },
-				paint: { 'line-color': color, 'line-width': 3, 'line-opacity': 0.9 },
+				paint: { 'line-color': color, 'line-width': 5, 'line-opacity': 1 },
 			});
-			routeLayerIds.push(srcId, layerId);
+			routeLayerIds.push(casingId, layerId, srcId);
 
 			for (const s of valid) {
 				const el = document.createElement('div');
 				Object.assign(el.style, {
-					width: '10px',
-					height: '10px',
+					width: '11px',
+					height: '11px',
 					borderRadius: '50%',
-					background: color,
-					border: '2px solid white',
-					boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+					background: '#26302a',
+					border: `2px solid ${color}`,
+					boxShadow: '0 0 0 1px rgba(255,255,255,.75), 0 1px 3px rgba(0,0,0,.35)',
 					cursor: s.id ? 'pointer' : 'default',
 				});
 				const popup = s.name
@@ -600,11 +635,11 @@
 					s.lat,
 				]);
 				el.addEventListener('mouseenter', () => {
-					el.style.boxShadow = `0 0 0 3px rgba(255,255,255,0.7), 0 2px 6px rgba(0,0,0,0.35)`;
+					el.style.boxShadow = `0 0 0 4px rgba(255,255,255,.75), 0 2px 6px rgba(0,0,0,.35)`;
 					popup?.addTo(map);
 				});
 				el.addEventListener('mouseleave', () => {
-					el.style.boxShadow = '0 1px 3px rgba(0,0,0,0.3)';
+					el.style.boxShadow = '0 0 0 1px rgba(255,255,255,.75), 0 1px 3px rgba(0,0,0,.35)';
 					popup?.remove();
 				});
 				if (s.id) {
@@ -639,16 +674,20 @@
 			const isCurrent = !!m.is_current || (!!stopId && m.id === stopId);
 			if (isCurrent) el.className = 'oba-current-stop-marker';
 			Object.assign(el.style, {
-				width: isCurrent ? '20px' : '14px',
-				height: isCurrent ? '20px' : '14px',
-				borderRadius: '50%',
-				background: isCurrent ? '#2563eb' : '#4caf50',
-				border: isCurrent ? '3px solid white' : '2.5px solid white',
+				width: isCurrent ? '28px' : '16px',
+				height: isCurrent ? '28px' : '16px',
+				borderRadius: isCurrent ? '8px' : '50%',
+				background: isCurrent ? '#f9faf7' : '#78aa37',
+				border: isCurrent ? '3px solid #26302a' : '3px solid white',
 				boxShadow: isCurrent
-					? '0 0 0 4px rgba(37,99,235,0.28), 0 2px 8px rgba(0,0,0,0.45)'
+					? '0 0 0 2px rgba(255,255,255,.85), 0 2px 8px rgba(0,0,0,.45)'
 					: '0 1px 5px rgba(0,0,0,0.4)',
 				cursor: hasId ? 'pointer' : 'default',
 			});
+			if (isCurrent) {
+				el.innerHTML =
+					'<span style="display:block;width:12px;height:12px;margin:5px;border-radius:3px;background:#377fba"></span>';
+			}
 			const popup = m.name
 				? new maplibregl.Popup({ offset: 14, closeButton: false, className: 'oba-hover-popup' })
 						.setLngLat([m.lon ?? m.lng, m.lat])
@@ -660,13 +699,13 @@
 			]);
 			el.addEventListener('mouseenter', () => {
 				el.style.boxShadow = isCurrent
-					? '0 0 0 6px rgba(37,99,235,0.24), 0 2px 8px rgba(0,0,0,0.45)'
-					: '0 0 0 4px rgba(76,175,80,0.3), 0 2px 8px rgba(0,0,0,0.4)';
+					? '0 0 0 4px rgba(55,127,186,.35), 0 2px 8px rgba(0,0,0,.45)'
+					: '0 0 0 4px rgba(120,170,55,.3), 0 2px 8px rgba(0,0,0,.4)';
 				popup?.addTo(map);
 			});
 			el.addEventListener('mouseleave', () => {
 				el.style.boxShadow = isCurrent
-					? '0 0 0 4px rgba(37,99,235,0.28), 0 2px 8px rgba(0,0,0,0.45)'
+					? '0 0 0 2px rgba(255,255,255,.85), 0 2px 8px rgba(0,0,0,.45)'
 					: '0 1px 5px rgba(0,0,0,0.4)';
 				popup?.remove();
 			});
@@ -733,17 +772,10 @@
 		});
 
 		map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
-		map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-left');
-
 		map.on('style.load', () => {
 			buildLayers();
 			buildVehicleMarkers();
 			mapLoading = false;
-			// Stop-focused maps are refreshed by tracking.stopArrivals. Only generic
-			// trip/agency maps need the separate vehicle-position lookup.
-			if (agencyId || (!stopId && vehicleTripIds?.length > 0)) {
-				refreshVehiclePositions();
-			}
 		});
 
 		const ro = new ResizeObserver(() => requestAnimationFrame(() => map?.resize()));
@@ -761,6 +793,9 @@
 		const _m = markers;
 		if (map && map.isStyleLoaded()) {
 			buildLayers();
+			// A vehicle can arrive before its route geometry during streaming.
+			// Re-project existing markers as soon as the shapes become available.
+			buildVehicleMarkers();
 		}
 	});
 
@@ -771,7 +806,9 @@
 		const incoming = vehiclesProp;
 		if (incoming === lastVehiclesProp) return;
 		lastVehiclesProp = incoming;
-		localVehicles = [...incoming];
+		localVehicles = deduplicateVehicles(
+			incoming.filter((vehicle) => !vehicle.trip_id || vehicle.active_trip_id),
+		);
 	});
 
 	// Update vehicle markers whenever localVehicles or tracking state changes.
@@ -784,11 +821,10 @@
 		if (map && map.isStyleLoaded()) buildVehicleMarkers();
 	});
 
-	// Poll generic trip/agency maps directly. Stop-focused maps get their live
-	// positions from tracking.stopArrivals, including recently departed trips
-	// retained by the arrivals endpoint's minutes_before window.
+	// Non-tracked/restored maps use trip details. Once a stop arrival is tracked,
+	// its precise arrival-for-stop poll becomes the only live-position source.
 	$effect(() => {
-		const canPoll = !!agencyId || (!stopId && (vehicleTripIds?.length ?? 0) > 0);
+		const canPoll = shouldPollMapVehicles({ agencyId, vehicleTripIds, hasStopTracker });
 		if (!canPoll) return;
 		const refresh = () => refreshVehiclePositions(vehicleTripIds);
 		const ms = isTracked ? 30_000 : 60_000;
@@ -797,6 +833,7 @@
 		return () => {
 			clearInterval(vehicleRefreshId);
 			vehicleRefreshId = null;
+			vehicleRefreshRequest++;
 		};
 	});
 
@@ -805,38 +842,27 @@
 		if (!stopId) return;
 		const liveArrivals = tracking.stopArrivals[stopId];
 		if (!Array.isArray(liveArrivals) || !liveArrivals.length) return;
-		// minutes_before keeps a just-departed trip in this response, and OBA's
-		// embedded tripStatus continues carrying its current vehicle position.
-		const vehicled = liveArrivals.filter((a) => a.vehicle_lat && a.vehicle_lon);
-		if (!vehicled.length) return;
-
-		// OBA typically stops reporting GPS the moment a bus reaches/passes the stop.
-		// Keep the last-known position visible for trips the user is still tracking
-		// so the bus doesn't vanish right as it arrives.
 		const trackedTripIds = new Set(
 			tracking.trackers.filter((t) => t.stop_id === stopId).map((t) => t.trip_id),
 		);
-		const freshTripIds = new Set(vehicled.map((a) => a.trip_id));
+		const vehicled = liveArrivals.filter(
+			(a) =>
+				a.trip_id &&
+				trackedTripIds.has(a.trip_id) &&
+				a.vehicle_lat != null &&
+				a.vehicle_lon != null,
+		);
+		if (!vehicled.length) return;
+
 		// This effect writes localVehicles, so reading it reactively here would make
 		// the effect trigger itself forever and freeze all page interactions.
 		const currentVehicles = untrack(() => localVehicles);
-		const preserved = currentVehicles.filter(
-			(v) => v.trip_id && trackedTripIds.has(v.trip_id) && !freshTripIds.has(v.trip_id),
-		);
-		localVehicles = [
-			...vehicled.map((a) => ({
-				lat: a.vehicle_lat,
-				lon: a.vehicle_lon,
-				vehicle_id: a.vehicle_id,
-				trip_id: a.trip_id,
-				route_id: a.route_id,
-				route_short_name: a.route_name,
-				headsign: a.headsign,
-				stops_away: a.number_of_stops_away,
-				bearing: a.vehicle_bearing ?? null,
-			})),
-			...preserved,
-		];
+		const projectedUpdates = vehicled
+			.map(vehicleFromArrival)
+			.filter(Boolean)
+			.filter((vehicle) => routeCoordinatesForVehicle(vehicle, [vehicle.lon, vehicle.lat]));
+		if (!projectedUpdates.length) return;
+		localVehicles = mergeTrackedVehicleUpdates(currentVehicles, projectedUpdates, trackedTripIds);
 	});
 
 	onDestroy(() => {
@@ -861,16 +887,19 @@
 {#if browser && hasContent}
 	<div
 		bind:this={containerEl}
-		class="overflow-hidden border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-950 {isFullscreen
+		class="overflow-hidden rounded-[10px] border border-[#cedadf] bg-white shadow-[0_1px_2px_rgba(23,33,38,.06),0_6px_18px_rgba(23,33,38,.06)] dark:border-[#34382f] dark:bg-[#1a1d17] {isFullscreen
 			? 'flex flex-col'
-			: 'rounded-xl'}"
+			: 'rounded-[10px]'}"
 	>
 		<!-- Map viewport -->
-		<div class="relative" style={isFullscreen ? 'flex: 1 1 0; min-height: 0;' : 'height: 220px'}>
+		<div
+			class="relative"
+			style={isFullscreen ? 'flex: 1 1 0; min-height: 0;' : 'height: clamp(300px, 46vw, 420px)'}
+		>
 			<div bind:this={mapEl} style="position: absolute; inset: 0;"></div>
 			{#if mapLoading}
 				<div
-					class="absolute inset-0 z-20 flex items-center justify-center bg-white/80 text-sm text-zinc-600 backdrop-blur-sm dark:bg-zinc-950/80 dark:text-zinc-300"
+					class="absolute inset-0 z-20 flex items-center justify-center bg-white/80 text-sm text-[#5f6659] backdrop-blur-sm dark:bg-[#11130f]/80 dark:text-[#a5ab9f]"
 					aria-live="polite"
 				>
 					<svg
@@ -889,14 +918,32 @@
 			{/if}
 
 			<!-- Controls -->
-			<div class="absolute right-2 top-2 z-10 flex items-center gap-1">
+			<div
+				class="absolute right-3 top-3 z-10 flex flex-col overflow-visible rounded-[7px] border border-[#cedadf] bg-white/95 shadow-sm backdrop-blur-sm dark:border-[#34382f] dark:bg-[#1a1d17]/95"
+			>
+				<button
+					type="button"
+					onclick={zoomIn}
+					aria-label="Zoom in"
+					class="flex h-9 w-9 items-center justify-center border-b border-[#cedadf] text-lg text-[#64737a] transition hover:bg-[#eaf0f2] hover:text-[#172126] dark:border-[#34382f] dark:text-[#a5ab9f] dark:hover:bg-[#22261e] dark:hover:text-[#f0f2ed]"
+				>
+					+
+				</button>
+				<button
+					type="button"
+					onclick={zoomOut}
+					aria-label="Zoom out"
+					class="flex h-9 w-9 items-center justify-center border-b border-[#cedadf] text-lg text-[#64737a] transition hover:bg-[#eaf0f2] hover:text-[#172126] dark:border-[#34382f] dark:text-[#a5ab9f] dark:hover:bg-[#22261e] dark:hover:text-[#f0f2ed]"
+				>
+					−
+				</button>
 				<!-- Theme picker -->
 				<div class="relative">
 					<button
 						type="button"
 						onclick={() => (showThemes = !showThemes)}
 						title="Change map theme"
-						class="flex h-7 w-7 items-center justify-center rounded-md bg-white/90 text-zinc-600 shadow-sm backdrop-blur-sm transition hover:bg-white hover:text-zinc-900 dark:bg-zinc-900/90 dark:text-zinc-300 dark:hover:bg-zinc-900 dark:hover:text-zinc-100"
+						class="flex h-9 w-9 items-center justify-center border-b border-[#cedadf] text-[#64737a] transition hover:bg-[#eaf0f2] hover:text-[#172126] dark:border-[#34382f] dark:text-[#a5ab9f] dark:hover:bg-[#22261e] dark:hover:text-[#f0f2ed]"
 					>
 						<svg
 							xmlns="http://www.w3.org/2000/svg"
@@ -917,16 +964,16 @@
 
 					{#if showThemes}
 						<div
-							class="absolute right-0 top-8 z-20 min-w-[110px] overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+							class="absolute right-11 top-0 z-20 min-w-[130px] overflow-hidden rounded-[7px] border border-[#cedadf] bg-white shadow-lg dark:border-[#34382f] dark:bg-[#1a1d17]"
 						>
 							{#each THEMES as t}
 								<button
 									type="button"
 									onclick={() => applyTheme(t.id)}
-									class="flex w-full items-center gap-2 px-3 py-2 text-left text-xs transition hover:bg-zinc-50 dark:hover:bg-zinc-800
+									class="flex min-h-9 w-full items-center gap-2 px-3 py-2 text-left text-xs transition hover:bg-[#f7fafb] dark:hover:bg-[#22261e]
 										{activeTheme === t.id
 										? 'font-semibold text-oba-600 dark:text-oba-400'
-										: 'text-zinc-700 dark:text-zinc-300'}"
+										: 'text-[#5f6659] dark:text-[#a5ab9f]'}"
 								>
 									{#if activeTheme === t.id}
 										<svg
@@ -955,7 +1002,7 @@
 					type="button"
 					onclick={toggleFullscreen}
 					title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
-					class="flex h-7 w-7 items-center justify-center rounded-md bg-white/90 text-zinc-600 shadow-sm backdrop-blur-sm transition hover:bg-white hover:text-zinc-900 dark:bg-zinc-900/90 dark:text-zinc-300 dark:hover:bg-zinc-900 dark:hover:text-zinc-100"
+					class="flex h-9 w-9 items-center justify-center text-[#64737a] transition hover:bg-[#eaf0f2] hover:text-[#172126] dark:text-[#a5ab9f] dark:hover:bg-[#22261e] dark:hover:text-[#f0f2ed]"
 				>
 					{#if isFullscreen}
 						<svg
@@ -993,13 +1040,13 @@
 
 			<!-- Route direction legend -->
 			{#if routeLegend.length > 0}
-				<div class="absolute bottom-6 left-2 z-10 flex flex-col gap-1">
+				<div class="absolute left-3 top-3 z-10 flex max-w-[calc(100%-92px)] flex-col gap-1.5">
 					{#each routeLegend as route}
 						<div
-							class="flex items-center gap-1.5 rounded-md bg-white/90 px-2 py-1 text-xs shadow-sm backdrop-blur-sm dark:bg-zinc-900/90"
+							class="flex min-h-9 items-center gap-2 rounded-full border border-[#cedadf] bg-white/95 px-3.5 text-xs shadow-sm backdrop-blur-sm dark:border-[#34382f] dark:bg-[#1a1d17]/95"
 						>
-							<span class="h-2 w-4 rounded-full" style="background: {route.color};"></span>
-							<span class="max-w-[160px] truncate font-medium text-zinc-700 dark:text-zinc-300"
+							<span class="h-3 w-3 rounded-[4px]" style="background: {route.color};"></span>
+							<span class="max-w-[160px] truncate font-medium text-[#1d211a] dark:text-[#f0f2ed]"
 								>{route.label}</span
 							>
 						</div>
@@ -1011,7 +1058,7 @@
 			{#if localVehicles.length > 0 && routes.length === 0}
 				<div class="absolute bottom-6 left-2 z-10">
 					<div
-						class="flex items-center gap-1.5 rounded-md bg-white/90 px-2 py-1 text-xs shadow-sm backdrop-blur-sm dark:bg-zinc-900/90"
+						class="flex items-center gap-1.5 rounded-[5px] border border-[#cedadf] bg-white/95 px-2.5 py-1.5 text-xs shadow-sm backdrop-blur-sm dark:border-[#34382f] dark:bg-[#1a1d17]/95"
 					>
 						<svg
 							width="12"
@@ -1026,7 +1073,7 @@
 							<circle cx="2.5" cy="9.2" r="1" fill="#4caf50" />
 							<circle cx="10.5" cy="9.2" r="1" fill="#4caf50" />
 						</svg>
-						<span class="font-medium text-zinc-700 dark:text-zinc-300"
+						<span class="font-medium text-[#1d211a] dark:text-[#f0f2ed]"
 							>{localVehicles.length} active vehicle{localVehicles.length === 1 ? '' : 's'}</span
 						>
 					</div>
@@ -1034,10 +1081,39 @@
 			{/if}
 		</div>
 
+		{#if primaryStop && !selectedStop}
+			<div
+				class="flex items-center gap-3 border-t border-[#cedadf] bg-white px-4 py-3 dark:border-[#34382f] dark:bg-[#1a1d17]"
+			>
+				<span
+					class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 border-[#377fba]"
+				>
+					<span class="h-3 w-3 rounded-full bg-[#377fba]"></span>
+				</span>
+				<div class="min-w-0 flex-1">
+					<p
+						class="oba-heading truncate text-[22px] leading-tight text-[#1d211a] dark:text-[#f0f2ed]"
+					>
+						{primaryStop.name ?? 'Selected stop'}
+					</p>
+					<p class="mt-0.5 truncate text-xs text-[#7d8377] dark:text-[#858b80]">
+						{primaryStop.id ? `Stop #${primaryStop.id}` : 'Selected stop'}
+					</p>
+				</div>
+				<span
+					class="hidden text-[10.5px] font-bold uppercase tracking-[0.1em] text-[#7d8377] dark:text-[#858b80] sm:inline"
+				>
+					Live map
+				</span>
+			</div>
+		{/if}
+
 		<!-- Arrivals pane: shown when a clickable stop is selected -->
 		{#if selectedStop}
 			<div
-				class="border-t border-zinc-200 dark:border-zinc-700 {isFullscreen ? 'flex-shrink-0' : ''}"
+				class="border-t border-[#cedadf] dark:border-[#34382f] {isFullscreen
+					? 'flex-shrink-0'
+					: ''}"
 				style={isFullscreen
 					? 'height: 320px; overflow-y: auto;'
 					: 'max-height: 220px; overflow-y: auto;'}
@@ -1053,6 +1129,105 @@
 {/if}
 
 <style>
+	:global(.oba-vehicle-marker) {
+		position: relative;
+		display: flex;
+		width: 44px;
+		height: 52px;
+		align-items: center;
+		justify-content: center;
+		cursor: pointer;
+		user-select: none;
+		filter: drop-shadow(0 2px 3px rgb(0 0 0 / 0.35));
+	}
+	:global(.oba-vehicle-body) {
+		position: relative;
+		z-index: 2;
+		display: flex;
+		width: 32px;
+		height: 32px;
+		align-items: center;
+		justify-content: center;
+		overflow: hidden;
+		border: 2px solid white;
+		border-radius: 50%;
+		background: var(--vehicle-color);
+		box-shadow: 0 0 0 1px rgb(23 33 38 / 0.55);
+	}
+	:global(.oba-vehicle-route) {
+		display: grid;
+		width: 100%;
+		height: 100%;
+		place-items: center;
+		background: transparent;
+		color: white;
+		font-family: 'Public Sans', sans-serif;
+		font-size: 11.5px;
+		font-weight: 700;
+		line-height: 1;
+	}
+	:global(.oba-vehicle-arrow) {
+		position: absolute;
+		z-index: 1;
+		left: 50%;
+		top: 0;
+		width: 0;
+		height: 0;
+		transform-origin: 50% 26px;
+		border-right: 5px solid transparent;
+		border-bottom: 10px solid var(--vehicle-color);
+		border-left: 5px solid transparent;
+	}
+	:global(.oba-vehicle-marker.is-tracked) {
+		filter: drop-shadow(0 2px 4px rgb(98 142 41 / 0.35));
+	}
+	:global(.oba-vehicle-marker.is-tracked .oba-vehicle-body) {
+		box-shadow:
+			0 0 0 2px white,
+			0 0 0 5px #78aa37;
+	}
+	:global(.oba-vehicle-tracking) {
+		position: absolute;
+		z-index: 3;
+		left: 50%;
+		bottom: 0;
+		transform: translateX(-50%);
+		padding: 2px 5px;
+		border-radius: 999px;
+		background: #405c1e;
+		color: white;
+		font-family: 'Public Sans', sans-serif;
+		font-size: 7px;
+		font-weight: 800;
+		letter-spacing: 0.08em;
+		line-height: 1;
+		text-transform: uppercase;
+		white-space: nowrap;
+	}
+	:global(.maplibregl-ctrl-top-right) {
+		top: 8px;
+		right: 8px;
+	}
+	:global(.maplibregl-ctrl-group) {
+		overflow: hidden;
+		border: 1px solid #cedadf;
+		border-radius: 7px;
+		box-shadow: 0 1px 3px rgb(29 33 26 / 0.16);
+	}
+	:global(.maplibregl-ctrl-group button) {
+		width: 36px;
+		height: 36px;
+	}
+	:global(.dark .maplibregl-ctrl-group) {
+		border-color: #34382f;
+		background: #1a1d17;
+	}
+	:global(.dark .maplibregl-ctrl-group button + button) {
+		border-color: #34382f;
+	}
+	:global(.dark .maplibregl-ctrl-icon) {
+		filter: invert(1);
+	}
 	:global(:fullscreen .maplibregl-map),
 	:global(:-webkit-full-screen .maplibregl-map) {
 		width: 100% !important;
@@ -1067,13 +1242,20 @@
 		transition: none !important;
 	}
 	:global(.oba-hover-popup .maplibregl-popup-content) {
-		color: #18181b;
+		border: 1px solid #cedadf;
+		border-radius: 7px;
+		color: #1d211a;
+		font-family: 'Public Sans', sans-serif;
+		font-size: 12px;
+		font-weight: 600;
+		box-shadow: 0 4px 14px rgb(29 33 26 / 0.15);
 	}
 	:global(.dark .oba-hover-popup .maplibregl-popup-content) {
-		background: #18181b;
-		color: #f4f4f5;
+		border-color: #34382f;
+		background: #1a1d17;
+		color: #f0f2ed;
 	}
 	:global(.dark .oba-hover-popup .maplibregl-popup-tip) {
-		border-color: #18181b;
+		border-color: #1a1d17;
 	}
 </style>

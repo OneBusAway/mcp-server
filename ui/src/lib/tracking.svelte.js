@@ -1,13 +1,14 @@
 /**
  * Global arrival tracking store.
- * Polls `get_arrivals_for_stop` every 15s per tracked stop (status, panel, and map).
+ * Polls `get_arrival_and_departure_for_stop` every 15s for each tracked trip.
  * Sends a browser notification when the bus is 1 stop away or arriving.
  * Never involves the LLM — all updates are direct MCP calls.
  */
 
 import { browser } from '$app/environment';
 import { callTool } from '$lib/mcp.js';
-import { items, normalizeArrival, normalizeArrivals } from '$lib/result.js';
+import { normalizeArrival, unwrap } from '$lib/result.js';
+import { trackedArrivalRequest } from '$lib/tracking-request.js';
 
 async function requestNotifPermission() {
 	if (!browser || !('Notification' in window)) return false;
@@ -63,7 +64,7 @@ function createTrackingStore() {
 	/** @type {Array<{
 	 *   id: string, key: string,
 	 *   stop_id: string, stop_name: string,
-	 *   trip_id: string, service_date: number,
+	 *   trip_id: string, active_trip_id: string, service_date: number, vehicle_id: string,
 	 *   route_name: string, headsign: string,
 	 *   stops_away: number | null, predicted_arrival: string,
 	 *   arrival_ms: number, departure_ms: number,
@@ -78,10 +79,9 @@ function createTrackingStore() {
 
 	/** @type {Record<string, any>} stop_id → interval handle (number in browser, Timeout in Node) */
 	const _stopIntervals = {};
+	const _stopPollVersions = {};
 	const POLL_INTERVAL_MS = 15_000;
-	// Keep an arrival visible long enough to receive its at-stop status. Without
-	// this window, OBA can drop a vehicle as soon as it reaches the stop.
-	const TRACKING_MINUTES_BEFORE = 15;
+	const TRACKER_RETENTION_MINUTES = 15;
 
 	function _update(id, patch) {
 		trackers = trackers.map((t) => (t.id === id ? { ...t, ...patch } : t));
@@ -104,8 +104,7 @@ function createTrackingStore() {
 			status: passed ? 'passed' : 'arriving',
 			predicted_arrival: arrival,
 			[flag]: true,
-			// Record when the bus first passed so _poll can expire the tracker after
-			// the arrivals lookback window — no immediate auto-remove.
+			// Record when the bus first passed so _poll can expire the tracker later.
 			...(passed && tracker.passed_at == null ? { passed_at: Date.now() } : {}),
 		});
 	}
@@ -129,6 +128,10 @@ function createTrackingStore() {
 	// in OBA, so timestamps and distance provide the arrival/pass fallback.
 	function _applyArrivalUpdate(tracker, data) {
 		tracker = trackers.find((item) => item.id === tracker.id) ?? tracker;
+		if (data?.active_trip_id && data.active_trip_id !== tracker.active_trip_id) {
+			_update(tracker.id, { active_trip_id: data.active_trip_id });
+			tracker = { ...tracker, active_trip_id: data.active_trip_id };
+		}
 		const now = Date.now();
 		const stopsAway = data?.number_of_stops_away;
 		const distance = Number(data?.distance_from_stop_meters);
@@ -177,50 +180,55 @@ function createTrackingStore() {
 		});
 	}
 
-	/** Fetch full arrivals for a stop and expose them reactively for live panel/map updates. */
+	async function _fetchTrackedArrival(tracker) {
+		const request = trackedArrivalRequest(tracker);
+		const result = await callTool(request.name, request.input);
+		const arrival = normalizeArrival(unwrap(result));
+		return arrival && typeof arrival === 'object' && arrival.trip_id === tracker.trip_id
+			? arrival
+			: null;
+	}
+
+	/** Refresh every individually tracked trip at a stop. */
 	async function _pollStop(stop_id) {
+		const pollVersion = (_stopPollVersions[stop_id] ?? 0) + 1;
+		_stopPollVersions[stop_id] = pollVersion;
 		const prev = stopArrivals[stop_id] ?? [];
 		const now = Date.now();
 		for (const tracker of trackers.filter((item) => item.stop_id === stop_id)) {
 			if (
 				tracker.status === 'passed' &&
 				tracker.passed_at != null &&
-				now - tracker.passed_at >= TRACKING_MINUTES_BEFORE * 60_000
+				now - tracker.passed_at >= TRACKER_RETENTION_MINUTES * 60_000
 			) {
 				remove(tracker.id);
 			}
 		}
-		if (!trackers.some((item) => item.stop_id === stop_id)) return;
-		try {
-			const result = await callTool('get_arrivals_for_stop', {
-				stop_id,
-				minutes_before: TRACKING_MINUTES_BEFORE,
-				minutes_after: 60,
-				limit: 50,
-			});
-			const fresh = normalizeArrivals(items(result));
-			const freshIds = new Set(fresh.map((a) => a.trip_id));
-			// Keep arrivals from previous response for 1 extra cycle to prevent flicker.
-			// Only carry over non-ghost trips with a future arrival time.
-			const ghosts = prev
-				.filter((a) => !a._ghost && !freshIds.has(a.trip_id))
-				.filter((a) => (a.predicted_arrival_ms || a.scheduled_arrival_ms || 0) > now)
-				.map((a) => ({ ...a, _ghost: true }));
-			stopArrivals = { ...stopArrivals, [stop_id]: [...fresh, ...ghosts] };
+		const active = trackers.filter((item) => item.stop_id === stop_id);
+		if (!active.length) return;
 
-			// One stop-level response updates every tracker for this stop, including
-			// current positions for recently departed trips retained by minutes_before.
-			for (const tracker of trackers.filter((item) => item.stop_id === stop_id)) {
-				const arrival = fresh.find((item) => item.trip_id === tracker.trip_id);
-				if (arrival) {
-					_applyArrivalUpdate(tracker, arrival);
-				} else if (tracker.arrival_ms > 0 && now > tracker.arrival_ms + 2 * 60_000) {
-					// Once an expected trip disappears after its arrival window, treat the
-					// missing row as a departure signal.
-					_markArrived(tracker, tracker.predicted_arrival, true);
-				}
+		const settled = await Promise.allSettled(active.map(_fetchTrackedArrival));
+		if (_stopPollVersions[stop_id] !== pollVersion) return;
+		const previousByTrip = new Map(prev.map((arrival) => [arrival.trip_id, arrival]));
+		const latest = [];
+		for (const [index, response] of settled.entries()) {
+			const tracker = trackers.find((item) => item.id === active[index].id);
+			if (!tracker) continue;
+			const arrival = response.status === 'fulfilled' ? response.value : null;
+			if (arrival) {
+				latest.push(arrival);
+				_applyArrivalUpdate(tracker, arrival);
+				continue;
 			}
-		} catch {}
+			const previous = previousByTrip.get(tracker.trip_id);
+			if (previous) latest.push(previous);
+			if (tracker.arrival_ms > 0 && now > tracker.arrival_ms + 2 * 60_000) {
+				_markArrived(tracker, tracker.predicted_arrival, true);
+			}
+		}
+		if (trackers.some((item) => item.stop_id === stop_id)) {
+			stopArrivals = { ...stopArrivals, [stop_id]: latest };
+		}
 	}
 
 	/**
@@ -250,7 +258,9 @@ function createTrackingStore() {
 					stop_id,
 					stop_name,
 					trip_id: a.trip_id,
+					active_trip_id: a.active_trip_id ?? '',
 					service_date: a.service_date,
+					vehicle_id: a.vehicle_id ?? '',
 					route_name: a.route_name,
 					headsign: a.headsign || '',
 					stops_away: a.number_of_stops_away ?? null,
@@ -272,11 +282,11 @@ function createTrackingStore() {
 			added++;
 		}
 
-		// Start stop-level refresh if this is the first tracker for this stop
+		// Start one timer per stop; each tick makes one precise request per tracker.
 		if (added > 0 && !_stopIntervals[stop_id]) {
 			_stopIntervals[stop_id] = setInterval(() => _pollStop(stop_id), POLL_INTERVAL_MS);
-			_pollStop(stop_id); // immediate — refresh arrivals panel and map right away
 		}
+		if (added > 0) _pollStop(stop_id);
 
 		return added;
 	}
@@ -285,6 +295,7 @@ function createTrackingStore() {
 		const t = trackers.find((x) => x.id === trackerId);
 		if (t) {
 			trackers = trackers.filter((x) => x.id !== trackerId);
+			_stopPollVersions[t.stop_id] = (_stopPollVersions[t.stop_id] ?? 0) + 1;
 			// Stop stop-level refresh when no more trackers remain for this stop
 			if (!trackers.some((x) => x.stop_id === t.stop_id)) {
 				clearInterval(_stopIntervals[t.stop_id]);
@@ -299,6 +310,7 @@ function createTrackingStore() {
 	function clear() {
 		for (const id of Object.values(_stopIntervals)) clearInterval(id);
 		Object.keys(_stopIntervals).forEach((k) => delete _stopIntervals[k]);
+		Object.keys(_stopPollVersions).forEach((k) => delete _stopPollVersions[k]);
 		trackers = [];
 		stopArrivals = {};
 	}

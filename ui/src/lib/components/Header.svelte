@@ -10,27 +10,26 @@
 </script>
 
 <header
-	class="sticky top-0 border-b border-zinc-200/80 bg-white/80 backdrop-blur-md dark:border-zinc-800/80 dark:bg-zinc-950/80"
+	class="sticky top-0 h-[58px] border-b border-black/40 bg-[#1b2017] text-white dark:bg-[#0b0d09]"
 	style="z-index: 9999; pointer-events: auto;"
 >
-	<div class="mx-auto grid max-w-7xl grid-cols-3 items-center px-4 py-3 sm:px-6">
+	<div class="mx-auto flex h-full max-w-7xl items-center gap-5 px-4 sm:px-6">
 		<!-- Left: Brand -->
-		<a href="/chat" class="flex items-center gap-2.5 justify-self-start">
+		<a href="/chat" class="mr-auto flex items-center gap-2.5 text-white no-underline">
 			<img
 				src="/oba-mcp.png"
 				alt="OneBusAway"
-				class="h-9 w-9 rounded-xl shadow-sm"
-				width="36"
-				height="36"
+				class="h-[32px] w-[32px] rounded-lg"
+				width="32"
+				height="32"
 			/>
-			<div class="hidden sm:block">
-				<p class="text-sm font-bold leading-tight text-zinc-900 dark:text-zinc-100">OBA Transit</p>
-				<p class="text-xs text-zinc-500 dark:text-zinc-400">MCP Dashboard</p>
-			</div>
+			<span class="oba-heading hidden text-[21px] font-medium tracking-tight sm:block"
+				>OneBusAway Assistant</span
+			>
 		</a>
 
 		<!-- Center: Nav (desktop) / Mobile icon nav -->
-		<nav class="flex items-center justify-center gap-1">
+		<nav class="flex items-center justify-center gap-1" aria-label="Sections">
 			{#each NAV as item}
 				{@const active =
 					$page.url.pathname === item.href ||
@@ -38,10 +37,11 @@
 				<!-- Desktop: icon + label -->
 				<a
 					href={item.href}
-					class="hidden items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition sm:flex
+					aria-current={active ? 'page' : undefined}
+					class="hidden min-h-[38px] items-center gap-1.5 rounded-lg px-3.5 text-sm transition sm:flex
 						{active
-						? 'bg-oba-50 text-oba-700 dark:bg-oba-500/10 dark:text-oba-400'
-						: 'text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100'}"
+						? 'bg-white/15 font-semibold text-white'
+						: 'font-medium text-white/75 hover:bg-white/10 hover:text-white'}"
 				>
 					<Icon name={item.icon} cls="h-3.5 w-3.5" />
 					{item.label}
@@ -49,10 +49,9 @@
 				<!-- Mobile: icon only -->
 				<a
 					href={item.href}
+					aria-current={active ? 'page' : undefined}
 					class="rounded-lg p-2 transition sm:hidden
-						{active
-						? 'text-oba-600 dark:text-oba-400'
-						: 'text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200'}"
+						{active ? 'bg-white/15 text-white' : 'text-white/70 hover:bg-white/10 hover:text-white'}"
 					title={item.label}
 				>
 					<Icon name={item.icon} cls="h-4 w-4" />

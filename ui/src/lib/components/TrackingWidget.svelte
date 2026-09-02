@@ -31,12 +31,12 @@
 	>
 		{#each tracking.trackers as t (t.id)}
 			<div
-				class="flex items-center gap-2.5 rounded-xl border bg-white px-3 py-2.5 shadow-lg dark:bg-zinc-900
+				class="flex items-center gap-2.5 rounded-[10px] border bg-white px-3 py-2.5 shadow-lg dark:bg-[#1a1d17]
 				{t.status === 'arriving' || t.status === 'passed'
 					? 'border-green-300 dark:border-green-700'
 					: t.status === 'approaching'
 						? 'border-amber-300 dark:border-amber-700'
-						: 'border-zinc-200 dark:border-zinc-700'}"
+						: 'border-[#cedadf] dark:border-[#34382f]'}"
 			>
 				<!-- Live status dot -->
 				<div
@@ -46,10 +46,10 @@
 
 				<!-- Info -->
 				<div class="min-w-0 flex-1">
-					<p class="truncate text-xs font-semibold text-zinc-800 dark:text-zinc-100">
+					<p class="truncate text-xs font-semibold text-[#1d211a] dark:text-[#f0f2ed]">
 						Route {t.route_name}{t.headsign ? ` · ${t.headsign}` : ''}
 					</p>
-					<p class="text-xs text-zinc-500 dark:text-zinc-400">
+					<p class="text-xs text-[#5f6659] dark:text-[#a5ab9f]">
 						{#if STATUS_LABEL[t.status]}
 							<span
 								class={t.status === 'arriving' || t.status === 'passed'
@@ -71,7 +71,7 @@
 							Waiting for update…
 						{/if}
 					</p>
-					<p class="truncate text-xs text-zinc-400 dark:text-zinc-500">{t.stop_name}</p>
+					<p class="truncate text-xs text-[#7d8377] dark:text-[#858b80]">{t.stop_name}</p>
 				</div>
 
 				<!-- Cancel -->
@@ -80,7 +80,7 @@
 					onpointerdown={(event) => stopTracking(event, t.id)}
 					title="Stop tracking"
 					aria-label={`Stop tracking Route ${t.route_name}`}
-					class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700 active:scale-95 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+					class="flex h-9 w-9 shrink-0 items-center justify-center rounded-[5px] text-[#7b898f] transition hover:bg-[#eaf0f2] hover:text-[#172126] active:scale-95 dark:text-[#858b80] dark:hover:bg-[#292d25] dark:hover:text-[#f0f2ed]"
 					style="position: relative; z-index: 1; pointer-events: auto; touch-action: manipulation;"
 				>
 					<svg

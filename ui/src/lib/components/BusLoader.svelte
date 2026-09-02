@@ -56,7 +56,7 @@
 <div class="flex flex-col items-center gap-3 py-4">
 	<!-- Track + bus scene -->
 	<div
-		class="loader-scene relative overflow-hidden rounded-xl border border-oba-100/70 bg-gradient-to-b from-oba-50/80 via-white to-white shadow-sm dark:border-oba-900/40 dark:from-oba-900/20 dark:via-zinc-900 dark:to-zinc-900"
+		class="loader-scene relative overflow-hidden rounded-[7px] border border-[#cedadf] bg-gradient-to-b from-[#f7fafb] via-white to-white shadow-sm dark:border-[#34382f] dark:from-[#22261e] dark:via-[#1a1d17] dark:to-[#1a1d17]"
 		style="width: 184px; height: 48px;"
 	>
 		<!-- Soft motion streaks make the scene feel alive while the bus travels. -->
@@ -130,7 +130,7 @@
 
 	<!-- Cycling label -->
 	<p
-		class="min-h-[1.2rem] text-xs font-medium text-zinc-400 transition-opacity duration-500 dark:text-zinc-500"
+		class="min-h-[1.2rem] text-xs font-medium text-[#7d8377] transition-opacity duration-500 dark:text-[#858b80]"
 	>
 		{displayLabel}
 	</p>

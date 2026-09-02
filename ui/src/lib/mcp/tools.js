@@ -46,4 +46,8 @@ export const MAP_RENDERING_TOOLS = new Set([
 ]);
 
 /** Narrow tool set for arrival-focused single-stop requests. */
-export const ARRIVAL_FOCUSED_TOOLS = new Set(['search_stops', 'get_arrivals_for_stop']);
+export const ARRIVAL_FOCUSED_TOOLS = new Set([
+	'search_stops',
+	'get_arrivals_for_stop',
+	'get_arrival_and_departure_for_stop',
+]);

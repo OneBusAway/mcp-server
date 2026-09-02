@@ -7,11 +7,11 @@
 </script>
 
 <svelte:head>
-	<title>OBA Transit Dashboard</title>
+	<title>OneBusAway Assistant</title>
 </svelte:head>
 
 <div
-	class="flex min-h-screen flex-col bg-zinc-50 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100"
+	class="flex min-h-screen flex-col bg-[#f3f7f9] text-[#172126] dark:bg-[#11130f] dark:text-[#f0f2ed]"
 >
 	<Header />
 	<main class="flex flex-1 flex-col">

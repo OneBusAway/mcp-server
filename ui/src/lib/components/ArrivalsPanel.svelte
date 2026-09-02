@@ -1,24 +1,31 @@
 <script>
+	import { untrack } from 'svelte';
 	import { callTool } from '$lib/mcp.js';
 	import { items, normalizeArrivals } from '$lib/result.js';
 	import { tracking } from '$lib/tracking.svelte.js';
+	import { shouldPollArrivalsPanel } from '$lib/tracking-request.js';
 	import ArrivalRow from './ArrivalRow.svelte';
 	import BusLoader from './BusLoader.svelte';
 	import Icon from './Icon.svelte';
 
-	/** @type {{ stopId?: string | null, stopName?: string, onClose?: () => void, initialArrivals?: any[] }} */
-	let { stopId = null, stopName = '', onClose = null, initialArrivals = [] } = $props();
+	/** @type {{ stopId?: string | null, stopName?: string, onClose?: () => void, initialArrivals?: any[], minutesBefore?: number, minutesAfter?: number }} */
+	let {
+		stopId = null,
+		stopName = '',
+		onClose = null,
+		initialArrivals = [],
+		minutesBefore = 0,
+		minutesAfter = 60,
+	} = $props();
 
 	let arrivals = $state([]);
 	let loading = $state(false);
 	let error = $state('');
 	let lastAt = $state(null);
 	let lastInitialArrivals = null;
-	const MINUTES_BEFORE = 15;
-	const stopLabel = $derived(
-		stopName && stopId && stopName !== stopId
-			? `${stopName} · ${stopId}`
-			: stopName || (stopId ? `Stop ${stopId}` : 'Select a stop'),
+	const stopTitle = $derived(stopName || (stopId ? `Stop ${stopId}` : 'Select a stop'));
+	const hasStopTracker = $derived(
+		tracking.trackers.some((tracker) => tracker.stop_id === stopId),
 	);
 
 	function ensureTrackedInArrivals(nextArrivals) {
@@ -72,6 +79,21 @@
 	const nonTrackedArrivals = $derived(
 		displayArrivals.filter((a) => !trackedArrival(a)).slice(0, 10),
 	);
+	const arrivalRouteColors = $derived.by(() => {
+		const palette = ['#e46f5b', '#9278d0', '#377fba', '#d18a2e', '#318a78', '#b5548d'];
+		const result = new Map();
+		for (const arrival of displayArrivals) {
+			const route = arrival.route_name ?? arrival.route_short_name ?? '';
+			if (!result.has(route)) result.set(route, palette[result.size % palette.length]);
+		}
+		return result;
+	});
+
+	function arrivalColor(arrival) {
+		return (
+			arrivalRouteColors.get(arrival.route_name ?? arrival.route_short_name ?? '') ?? '#78aa37'
+		);
+	}
 
 	async function load() {
 		if (!stopId) return;
@@ -80,8 +102,8 @@
 		try {
 			const result = await callTool('get_arrivals_for_stop', {
 				stop_id: stopId,
-				minutes_before: MINUTES_BEFORE,
-				minutes_after: 60,
+				minutes_before: minutesBefore,
+				minutes_after: minutesAfter,
 				limit: 50,
 			});
 			arrivals = ensureTrackedInArrivals(normalizeArrivals(items(result)));
@@ -97,6 +119,22 @@
 		return tracking.trackers.find(
 			(tracker) => tracker.stop_id === stopId && tracker.trip_id === arrival.trip_id,
 		);
+	}
+
+	function mergeTrackedUpdates(current, updates) {
+		const trackedTripIds = new Set(
+			tracking.trackers
+				.filter((tracker) => tracker.stop_id === stopId)
+				.map((tracker) => tracker.trip_id),
+		);
+		const result = [...current];
+		for (const update of updates) {
+			if (!update?.trip_id || !trackedTripIds.has(update.trip_id)) continue;
+			const index = result.findIndex((arrival) => arrival.trip_id === update.trip_id);
+			if (index === -1) result.push(update);
+			else result[index] = { ...result[index], ...update };
+		}
+		return ensureTrackedInArrivals(result);
 	}
 
 	// Arrival cards stream their data in after mounting. Sync only when the
@@ -121,15 +159,19 @@
 			try {
 				const result = await callTool('get_arrivals_for_stop', {
 					stop_id: stopId,
-					minutes_before: MINUTES_BEFORE,
-					minutes_after: 60,
+					minutes_before: minutesBefore,
+					minutes_after: minutesAfter,
 					limit: 50,
 				});
 				const refreshed = normalizeArrivals(items(result));
 				trackable = refreshed.find((item) => item.trip_id === arrival.trip_id) ?? arrival;
 			} catch {}
 		}
-		await tracking.add({ stop_id: stopId, stop_name: stopName, arrivals: [trackable] });
+		await tracking.add({
+			stop_id: stopId,
+			stop_name: stopName,
+			arrivals: [trackable],
+		});
 	}
 
 	// Auto-load when stopId changes — skip when initialArrivals already provided
@@ -140,36 +182,54 @@
 		load();
 	});
 
-	// Live updates from tracking store (fires when tracking polls this stop)
+	// Live updates from the precise per-trip tracking requests.
 	$effect(() => {
 		if (!stopId) return;
 		const liveData = tracking.stopArrivals[stopId];
 		if (Array.isArray(liveData) && liveData.length) {
-			arrivals = ensureTrackedInArrivals(liveData);
+			arrivals = mergeTrackedUpdates(
+				untrack(() => arrivals),
+				liveData,
+			);
 			lastAt = new Date();
 		}
 	});
 
-	// Periodic auto-refresh for live panels only. Chat history cards (those
-	// mounted with initialArrivals) skip this interval — they receive updates
-	// via tracking.stopArrivals when a trip is being tracked, and don't need
-	// their own ongoing MCP requests.
+	// Refresh every stop panel, including chat cards initialized from streamed
+	// data. Once tracking starts, precise per-trip polling owns the live row and
+	// this broad stop query pauses so Track never reloads the full arrivals list.
 	$effect(() => {
-		if (!stopId || initialArrivals.length > 0) return;
+		if (!shouldPollArrivalsPanel({ stopId, hasStopTracker })) return;
 		const id = setInterval(() => load(), 30_000);
 		return () => clearInterval(id);
 	});
 </script>
 
-<section class="flex h-full flex-col bg-white dark:bg-zinc-900">
-	<div class="flex items-center gap-2 border-b border-zinc-200 px-3 py-2.5 dark:border-zinc-800">
+<section class="flex h-full flex-col bg-white dark:bg-[#1a1d17]">
+	<div
+		class="flex items-center gap-2 border-b border-[#cedadf] bg-[#f7fafb] px-4 py-3 dark:border-[#34382f] dark:bg-[#20231d]"
+	>
+		<span
+			class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 border-[#377fba]"
+		>
+			<span class="h-3 w-3 rounded-full bg-[#377fba]"></span>
+		</span>
 		<div class="min-w-0 flex-1">
-			<h2 class="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-				{stopLabel}
-			</h2>
+			<div class="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
+				<h2
+					class="oba-heading truncate text-[22px] leading-tight text-[#172126] dark:text-[#f0f2ed]"
+				>
+					{stopTitle}
+				</h2>
+				{#if stopId}
+					<span class="text-xs text-[#7d8377] dark:text-[#858b80]">Stop #{stopId}</span>
+				{/if}
+			</div>
 			{#if lastAt}
-				<p class="text-xs text-zinc-400 dark:text-zinc-500">
-					Updated {lastAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+				<p class="text-xs text-[#7d8377] dark:text-[#858b80]">
+					Updated {lastAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · {hasStopTracker
+						? 'tracked row refreshes every 15 s'
+						: 'refreshes every 30 s'}
 				</p>
 			{/if}
 			{#if arrivals.length && !hasRealtimeData}
@@ -182,17 +242,18 @@
 					type="button"
 					onclick={load}
 					disabled={loading}
-					class="rounded-full p-1.5 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-600 disabled:opacity-50 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
+					class="flex h-9 items-center justify-center gap-1.5 rounded-[6px] border border-[#cedadf] px-2.5 text-xs font-bold text-[#172126] transition hover:bg-[#eaf0f2] disabled:opacity-50 dark:border-[#34382f] dark:text-[#f0f2ed] dark:hover:bg-[#292d25]"
 					title="Refresh"
 				>
 					<Icon name="refresh-cw" cls="h-3.5 w-3.5 {loading ? 'animate-spin' : ''}" />
+					<span class="hidden sm:inline">Refresh</span>
 				</button>
 			{/if}
 			{#if onClose}
 				<button
 					type="button"
 					onclick={onClose}
-					class="rounded-full p-1.5 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
+					class="flex h-9 w-9 items-center justify-center rounded-[5px] text-[#7d8377] transition hover:bg-[#e8e9e5] hover:text-[#1d211a] dark:text-[#858b80] dark:hover:bg-[#292d25] dark:hover:text-[#f0f2ed]"
 					title="Close"
 				>
 					<svg
@@ -213,7 +274,7 @@
 		</div>
 	</div>
 
-	<div class="flex-1 overflow-y-auto text-zinc-900 dark:text-zinc-100">
+	<div class="flex-1 overflow-y-auto text-[#1d211a] dark:text-[#f0f2ed]">
 		{#if !stopId}
 			<div class="flex h-full flex-col items-center justify-center gap-2 p-8 text-center">
 				<Icon name="map-pin" cls="h-8 w-8 text-zinc-300 dark:text-zinc-500" />
@@ -240,10 +301,10 @@
 				</p>
 			</div>
 		{:else}
-			<div class="divide-y divide-zinc-100 dark:divide-zinc-800/60">
+			<div class="divide-y divide-[#e8e9e5] dark:divide-[#292d25]">
 				{#if trackedArrivals.length > 0}
 					<div
-						class="flex items-center gap-1.5 border-b border-amber-100 bg-amber-50 px-3 py-1 dark:border-amber-500/10 dark:bg-amber-500/5"
+						class="flex items-center gap-2 border-b border-oba-200 bg-oba-50 px-5 py-2 dark:border-oba-800 dark:bg-oba-900/35"
 					>
 						<svg
 							xmlns="http://www.w3.org/2000/svg"
@@ -251,7 +312,7 @@
 							height="11"
 							viewBox="0 0 24 24"
 							fill="none"
-							stroke="#f59e0b"
+							stroke="#628e29"
 							stroke-width="2.5"
 							stroke-linecap="round"
 							stroke-linejoin="round"
@@ -267,22 +328,33 @@
 								y2="12"
 							/></svg
 						>
-						<span class="text-xs font-semibold text-amber-700 dark:text-amber-400">Tracking</span>
+						<span
+							class="text-[10.5px] font-bold uppercase tracking-[0.12em] text-oba-800 dark:text-oba-300"
+							>Tracking</span
+						>
 					</div>
-					{#each trackedArrivals as arrival (arrival.trip_id)}
-						<ArrivalRow
-							{arrival}
-							trackingActive={true}
-							onToggleTracking={() => toggleArrivalTracking(arrival)}
-						/>
-					{/each}
+					<div class="bg-[#f7faf2] dark:bg-oba-900/20">
+						{#each trackedArrivals as arrival (arrival.trip_id)}
+							<ArrivalRow
+								{arrival}
+								routeColor={arrivalColor(arrival)}
+								trackingActive={true}
+								onToggleTracking={() => toggleArrivalTracking(arrival)}
+							/>
+						{/each}
+					</div>
 					{#if nonTrackedArrivals.length > 0}
-						<div class="px-3 py-1 text-xs text-zinc-400 dark:text-zinc-500">Other arrivals</div>
+						<div
+							class="bg-[#eaf0f2] px-4 py-1.5 text-[10.5px] font-bold uppercase tracking-[0.1em] text-[#7b898f] dark:bg-[#20231d] dark:text-[#858b80]"
+						>
+							Other arrivals
+						</div>
 					{/if}
 				{/if}
 				{#each nonTrackedArrivals as arrival (arrival.trip_id ?? arrival.route_short_name + arrival.scheduled_arrival)}
 					<ArrivalRow
 						{arrival}
+						routeColor={arrivalColor(arrival)}
 						trackingActive={false}
 						onToggleTracking={() => toggleArrivalTracking(arrival)}
 					/>
@@ -290,4 +362,19 @@
 			</div>
 		{/if}
 	</div>
+	{#if stopId && arrivals.length > 0}
+		<div
+			class="flex shrink-0 items-center justify-between gap-3 border-t border-[#cedadf] bg-[#eaf0f2] px-5 py-2 text-xs text-[#64737a] dark:border-[#34382f] dark:bg-[#20231d] dark:text-[#a5ab9f]"
+		>
+			<div class="flex items-center gap-3">
+				<span class="inline-flex items-center gap-1.5"
+					><span class="h-2.5 w-2.5 rounded-full bg-[#36b99a]"></span>Live</span
+				>
+				<span class="inline-flex items-center gap-1.5"
+					><span class="h-2.5 w-2.5 rounded-full border border-[#8d9389]"></span>Scheduled</span
+				>
+			</div>
+			<span class="hidden sm:inline">OneBusAway live arrivals</span>
+		</div>
+	{/if}
 </section>

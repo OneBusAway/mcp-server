@@ -6,6 +6,7 @@
  */
 
 import { unwrap } from '$lib/result.js';
+import { deduplicateVehicles } from '$lib/vehicles.js';
 
 // ---------------------------------------------------------------------------
 // Geometry
@@ -65,10 +66,12 @@ export function routeStopMarkers(route) {
  * Prefer the agency's actual shape, with an ordered stop-path fallback when
  * the upstream route does not include encoded polylines.
  */
-export function routeDirections(route, routeName) {
+export function routeDirections(route, routeName, routeId = routeName) {
 	const shapePaths = (route?.polylines ?? []).flatMap((polyline) => {
 		const coordinates = decodePolyline(polyline.encoded_polyline ?? '');
-		return coordinates.length >= 2 ? [{ direction: routeName, coordinates }] : [];
+		return coordinates.length >= 2
+			? [{ direction: routeName, route_id: routeId, coordinates }]
+			: [];
 	});
 	if (shapePaths.length) return shapePaths;
 
@@ -77,7 +80,7 @@ export function routeDirections(route, routeName) {
 			.filter((stop) => stop?.lat != null && stop?.lon != null)
 			.map((stop) => [stop.lon, stop.lat]);
 		return coordinates.length >= 2
-			? [{ direction: direction.direction || routeName, coordinates }]
+			? [{ direction: direction.direction || routeName, route_id: routeId, coordinates }]
 			: [];
 	});
 }
@@ -106,7 +109,6 @@ export function createMapState() {
 		markerIndexes: new Map(),
 		currentMarkerKey: null,
 		directionKeys: new Set(),
-		vehicleKeys: new Set(),
 		routeIdSet: new Set(),
 		tripIds: new Set(),
 	};
@@ -145,13 +147,7 @@ export function addDirections(mapState, directions) {
 }
 
 export function addVehicles(mapState, vehicles) {
-	for (const vehicle of vehicles) {
-		if (vehicle?.lat == null || vehicle?.lon == null) continue;
-		const key = vehicle.vehicle_id ?? vehicle.trip_id ?? `${vehicle.lat},${vehicle.lon}`;
-		if (mapState.vehicleKeys.has(key)) continue;
-		mapState.vehicleKeys.add(key);
-		mapState.vehicles.push(vehicle);
-	}
+	mapState.vehicles = deduplicateVehicles([...mapState.vehicles, ...vehicles]);
 }
 
 export function addRouteId(mapState, routeId) {
@@ -170,7 +166,7 @@ export function addRouteId(mapState, routeId) {
 export function addRouteData(mapState, routeId, route) {
 	const routeStops = routeStopMarkers(route);
 	addMarkers(mapState, routeStops);
-	const directions = routeDirections(route, routeId);
+	const directions = routeDirections(route, routeId, routeId);
 	addDirections(mapState, directions);
 	if (routeStops.length || directions.length) addRouteId(mapState, routeId);
 	return routeStops.length > 0 || directions.length > 0;

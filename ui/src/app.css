@@ -4,29 +4,55 @@
 @custom-variant dark (html.dark &);
 
 @theme {
-	--color-oba-50: #e8f5e9;
-	--color-oba-100: #c8e6c9;
-	--color-oba-200: #a5d6a7;
-	--color-oba-300: #81c784;
-	--color-oba-400: #66bb6a;
-	--color-oba-500: #4caf50;
-	--color-oba-600: #43a047;
-	--color-oba-700: #388e3c;
-	--color-oba-800: #2e7d32;
-	--color-oba-900: #1b5e20;
+	--font-sans: 'Public Sans', system-ui, sans-serif;
+	--color-oba-50: #f1f7e8;
+	--color-oba-100: #e2efce;
+	--color-oba-200: #c7dfa4;
+	--color-oba-300: #a8ca75;
+	--color-oba-400: #8ab64d;
+	--color-oba-500: #78aa37;
+	--color-oba-600: #628e29;
+	--color-oba-700: #4f7421;
+	--color-oba-800: #405c1e;
+	--color-oba-900: #304619;
 }
 
 html {
 	color-scheme: light;
+	font-family: 'Public Sans', system-ui, sans-serif;
+	background: #f3f7f9;
 }
 html.dark {
 	color-scheme: dark;
 }
 body {
-	background-color: #ffffff;
+	margin: 0;
+	background-color: #f3f7f9;
+	color: #172126;
 }
 html.dark body {
-	background-color: #0a0a0a;
+	background-color: #11130f;
+	color: #f0f2ed;
+}
+
+button,
+input,
+textarea,
+select {
+	font: inherit;
+}
+
+:focus-visible {
+	outline: 2px solid #628e29;
+	outline-offset: 2px;
+}
+
+html.dark :focus-visible {
+	outline-color: #a8ca75;
+}
+
+.oba-heading {
+	font-family: 'Newsreader', Georgia, serif;
 }
 
 ::-webkit-scrollbar {
