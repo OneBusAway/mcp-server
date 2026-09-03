@@ -434,6 +434,9 @@ func TestRequestLogsIncludeCorrelationAndParamsButExcludeAPIKey(t *testing.T) {
 	if !strings.Contains(got, `"tool":"get_trip_details"`) {
 		t.Fatalf("request log does not contain tool name: %s", got)
 	}
+	if !strings.Contains(got, `"object_id":"test_trip"`) {
+		t.Fatalf("request log does not contain requested object ID: %s", got)
+	}
 	if !strings.Contains(got, `"includeSchedule":["false"]`) || !strings.Contains(got, `"time":["987654"]`) {
 		t.Fatalf("request log omitted parameters: %s", got)
 	}

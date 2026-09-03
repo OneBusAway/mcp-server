@@ -332,11 +332,11 @@ func (c *OBAClient) GetWithCacheState(ctx context.Context, path string, params u
 	now := c.clock()
 	if ttl > 0 {
 		if result, ok := c.memoryCacheGet(key, now); ok {
-			c.logRequest(ctx, op, "hit", query, 0, len(result), nil)
+			c.logRequest(ctx, path, op, "hit", query, 0, len(result), nil)
 			return result, CacheHit, nil
 		}
 		if result, ok := c.loadPersistentCache(ctx, key, now); ok {
-			c.logRequest(ctx, op, "l2-hit", query, 0, len(result), nil)
+			c.logRequest(ctx, path, op, "l2-hit", query, 0, len(result), nil)
 			return result, CacheHit, nil
 		}
 	}
@@ -401,7 +401,7 @@ func (c *OBAClient) fetch(ctx context.Context, path string, query url.Values, op
 		}
 		start := time.Now()
 		result, failure := c.doRequest(ctx, requestURL)
-		c.logRequest(ctx, op, "miss", query, time.Since(start).Milliseconds(), len(result), failure)
+		c.logRequest(ctx, path, op, "miss", query, time.Since(start).Milliseconds(), len(result), failure)
 		if failure == nil {
 			c.recordCircuitSuccess()
 			return result, nil
@@ -581,7 +581,7 @@ func (c *OBAClient) recordCircuitFailure(err *UpstreamError) {
 	}
 }
 
-func (c *OBAClient) logRequest(ctx context.Context, op, cache string, params url.Values, ms int64, bytes int, err *UpstreamError) {
+func (c *OBAClient) logRequest(ctx context.Context, path, op, cache string, params url.Values, ms int64, bytes int, err *UpstreamError) {
 	observation := UpstreamObservation{
 		Operation: op,
 		Cache:     cache,
@@ -600,15 +600,24 @@ func (c *OBAClient) logRequest(ctx context.Context, op, cache string, params url
 	if c.logger == nil {
 		return
 	}
+	objectID := requestedObjectID(path)
 	encodedParams, marshalErr := json.Marshal(sanitizedParams(params))
 	if marshalErr != nil {
 		encodedParams = []byte(`{}`)
 	}
 	if err != nil {
-		c.logger.Printf(`{"event":"upstream","request_id":%q,"tool":%q,"op":%q,"cache":%q,"params":%s,"ms":%d,"status":%d,"error_code":%q}`, requestmeta.RequestID(ctx), requestmeta.ToolName(ctx), op, cache, encodedParams, ms, err.StatusCode, err.Code)
+		c.logger.Printf(`{"event":"upstream","request_id":%q,"tool":%q,"op":%q,"object_id":%q,"cache":%q,"params":%s,"ms":%d,"status":%d,"error_code":%q}`, requestmeta.RequestID(ctx), requestmeta.ToolName(ctx), op, objectID, cache, encodedParams, ms, err.StatusCode, err.Code)
 		return
 	}
-	c.logger.Printf(`{"event":"upstream","request_id":%q,"tool":%q,"op":%q,"cache":%q,"params":%s,"ms":%d,"status":%d,"bytes":%d}`, requestmeta.RequestID(ctx), requestmeta.ToolName(ctx), op, cache, encodedParams, ms, observation.StatusCode, bytes)
+	c.logger.Printf(`{"event":"upstream","request_id":%q,"tool":%q,"op":%q,"object_id":%q,"cache":%q,"params":%s,"ms":%d,"status":%d,"bytes":%d}`, requestmeta.RequestID(ctx), requestmeta.ToolName(ctx), op, objectID, cache, encodedParams, ms, observation.StatusCode, bytes)
+}
+
+func requestedObjectID(path string) string {
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	if len(parts) != 4 || parts[0] != "api" || parts[1] != "where" || parts[2] == "search" {
+		return ""
+	}
+	return strings.TrimSuffix(parts[3], ".json")
 }
 
 func sanitizedParams(params url.Values) url.Values {

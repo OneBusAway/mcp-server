@@ -43,9 +43,10 @@ real user authentication, authorization, and audit identity.
 
 Tool logs contain tool name, outcome, public error code, latency, response
 size, request ID, and caller hash. Upstream logs contain operation name, cache
-tier, latency, response size, HTTP/public error classification, and request
-ID. They intentionally omit arguments, query strings, URLs, coordinates,
-search text, API keys, bearer tokens, response bodies, and stack traces.
+requested object ID when applicable, cache tier, latency, response size,
+HTTP/public error classification, and request ID. They intentionally omit
+URLs, coordinates, search text, API keys, bearer tokens, response bodies, and
+stack traces.
 
 ## Metrics and dashboard panels
 
