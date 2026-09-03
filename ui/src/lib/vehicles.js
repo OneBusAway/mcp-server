@@ -54,7 +54,7 @@ export function vehicleFromArrival(arrival) {
 		route_short_name: arrival.active_route_id?.split('_').at(-1) ?? arrival.route_name,
 		headsign: arrival.active_headsign ?? arrival.headsign,
 		stops_away: arrival.number_of_stops_away,
-		};
+	};
 }
 
 export function vehicleFromTripDetails(update, tripInfo = {}) {

@@ -57,7 +57,11 @@ describe('validateError', () => {
 	});
 
 	it('defaults missing optional fields', () => {
-		const result = validateError({ code: 'INVALID_ARGUMENT', message: 'Bad arg', retryable: false });
+		const result = validateError({
+			code: 'INVALID_ARGUMENT',
+			message: 'Bad arg',
+			retryable: false,
+		});
 		expect(result.retry_after_ms).toBeNull();
 		expect(result.request_id).toBe('');
 	});

@@ -24,9 +24,7 @@
 	let lastAt = $state(null);
 	let lastInitialArrivals = null;
 	const stopTitle = $derived(stopName || (stopId ? `Stop ${stopId}` : 'Select a stop'));
-	const hasStopTracker = $derived(
-		tracking.trackers.some((tracker) => tracker.stop_id === stopId),
-	);
+	const hasStopTracker = $derived(tracking.trackers.some((tracker) => tracker.stop_id === stopId));
 
 	function ensureTrackedInArrivals(nextArrivals) {
 		const tracked = tracking.trackers.filter((item) => item.stop_id === stopId);

@@ -1,29 +1,29 @@
 {
-  "data": {
-    "items": [
-      {
-        "trip_id": "1_12345",
-        "route_id": "1_44",
-        "route_name": "44",
-        "headsign": "Ballard",
-        "predicted": true,
-        "scheduled_arrival_ms": 1700000000000,
-        "predicted_arrival_ms": 1700000030000,
-        "scheduled_arrival_display": "3:45 PM",
-        "predicted_arrival_display": "3:46 PM",
-        "number_of_stops_away": 3,
-        "deviation_seconds": 30,
-        "deviation_label": "30 sec late",
-        "service_date": 1699920000000,
-        "vehicle_id": "1_v100"
-      }
-    ]
-  },
-  "meta": {
-    "generated_at_ms": 1700000000000,
-    "truncated": false,
-    "cache": "",
-    "request_id": "test-req-id-001"
-  },
-  "warnings": []
+	"data": {
+		"items": [
+			{
+				"trip_id": "1_12345",
+				"route_id": "1_44",
+				"route_name": "44",
+				"headsign": "Ballard",
+				"predicted": true,
+				"scheduled_arrival_ms": 1700000000000,
+				"predicted_arrival_ms": 1700000030000,
+				"scheduled_arrival_display": "3:45 PM",
+				"predicted_arrival_display": "3:46 PM",
+				"number_of_stops_away": 3,
+				"deviation_seconds": 30,
+				"deviation_label": "30 sec late",
+				"service_date": 1699920000000,
+				"vehicle_id": "1_v100"
+			}
+		]
+	},
+	"meta": {
+		"generated_at_ms": 1700000000000,
+		"truncated": false,
+		"cache": "",
+		"request_id": "test-req-id-001"
+	},
+	"warnings": []
 }

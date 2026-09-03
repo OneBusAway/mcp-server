@@ -158,9 +158,7 @@
 		!!stopId && tracking.trackers.some((tracker) => tracker.stop_id === stopId),
 	);
 	const visibleVehicles = $derived.by(() =>
-		stopId
-			? deduplicateVehicles([...stopFeedVehicles, ...trackedVehicleOverrides])
-			: localVehicles,
+		stopId ? deduplicateVehicles([...stopFeedVehicles, ...trackedVehicleOverrides]) : localVehicles,
 	);
 	const stopRouteIds = $derived.by(() => [
 		...new Set(routes.map((route) => route.route_id).filter(Boolean)),
@@ -239,7 +237,8 @@
 		for (let markerIndex = 1; markerIndex <= count; markerIndex++) {
 			const distance = (total * markerIndex) / (count + 1);
 			const segment = segments.find(
-				(candidate) => distance >= candidate.start && distance <= candidate.start + candidate.length,
+				(candidate) =>
+					distance >= candidate.start && distance <= candidate.start + candidate.length,
 			);
 			if (!segment) continue;
 			const fraction = (distance - segment.start) / segment.length;
@@ -247,7 +246,7 @@
 			const lat = segment.fromLat + (segment.toLat - segment.fromLat) * fraction;
 			const bearing =
 				(Math.atan2(segment.toLon - segment.fromLon, segment.toLat - segment.fromLat) * 180) /
-					Math.PI;
+				Math.PI;
 			const el = document.createElement('div');
 			el.className = 'oba-route-direction-arrow';
 			el.innerHTML = `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1 15 15 8 11 1 15Z" fill="#f7fafb" stroke="${color}" stroke-width="2" stroke-linejoin="round" /></svg>`;
@@ -329,7 +328,9 @@
 		const candidates = routes
 			.map((direction) => ({ direction, coordinates: routeCoordinates(direction) }))
 			.filter(({ coordinates }) => coordinates.length >= 2);
-		const matching = candidates.filter(({ direction }) => directionMatchesVehicle(direction, vehicle));
+		const matching = candidates.filter(({ direction }) =>
+			directionMatchesVehicle(direction, vehicle),
+		);
 		// Old saved single-route cards have no route_id metadata. With only one
 		// route group there is no unrelated line to choose, so they remain usable.
 		const routeGroups = new Set(
@@ -393,7 +394,7 @@
 			const color = routeColorForVehicle(v);
 			const visualKey = `${v.route_short_name ?? ''}|${color}|${isTracked}`;
 			const targetSnapped = matchingRoute
-				? nearestPointOnRoute(lngLat, matchingRoute)?.point ?? lngLat
+				? (nearestPointOnRoute(lngLat, matchingRoute)?.point ?? lngLat)
 				: lngLat;
 			if (vehicleMarkerMap.has(key)) {
 				const entry = vehicleMarkerMap.get(key);
@@ -500,9 +501,7 @@
 					}),
 				)
 				.filter(Boolean)
-				.filter((vehicle) =>
-					routeCoordinatesForVehicle(vehicle, [vehicle.lon, vehicle.lat]),
-				);
+				.filter((vehicle) => routeCoordinatesForVehicle(vehicle, [vehicle.lon, vehicle.lat]));
 		});
 		if (request === stopRouteRefreshRequest) {
 			stopFeedVehicles = deduplicateVehicles(vehicles);
@@ -691,8 +690,7 @@
 				(v) =>
 					v.lat &&
 					v.lon &&
-					(!vehicleRequiresRouteGeometry(v) ||
-						routeCoordinatesForVehicle(v, [v.lon, v.lat])),
+					(!vehicleRequiresRouteGeometry(v) || routeCoordinatesForVehicle(v, [v.lon, v.lat])),
 			),
 		].filter((p) => p.lat && (p.lon || p.lng));
 

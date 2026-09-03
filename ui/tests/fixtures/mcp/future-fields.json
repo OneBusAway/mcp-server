@@ -1,17 +1,17 @@
 {
-  "data": {
-    "items": [],
-    "pagination": { "page": 1, "total": 0 }
-  },
-  "meta": {
-    "generated_at_ms": 1700000000000,
-    "truncated": false,
-    "cache": "miss",
-    "request_id": "test-req-id-003",
-    "server_version": "1.2.3",
-    "region": "puget-sound"
-  },
-  "warnings": ["Partial data: some agencies are offline."],
-  "future_field": "should be silently ignored",
-  "another_new_field": { "nested": true }
+	"data": {
+		"items": [],
+		"pagination": { "page": 1, "total": 0 }
+	},
+	"meta": {
+		"generated_at_ms": 1700000000000,
+		"truncated": false,
+		"cache": "miss",
+		"request_id": "test-req-id-003",
+		"server_version": "1.2.3",
+		"region": "puget-sound"
+	},
+	"warnings": ["Partial data: some agencies are offline."],
+	"future_field": "should be silently ignored",
+	"another_new_field": { "nested": true }
 }
