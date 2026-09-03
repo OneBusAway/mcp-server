@@ -46,10 +46,14 @@ func (pw *PrettyWriter) Write(p []byte) (int, error) {
 		bytes, _ := m["bytes"].(float64)
 		errCode, _ := m["error_code"].(string)
 		requestID, _ := m["request_id"].(string)
+		objectID, _ := m["object_id"].(string)
 		params := formatParams(m["params"])
 		extraParams := ""
+		if objectID != "" {
+			extraParams = "  object_id=" + objectID
+		}
 		if params != "" {
-			extraParams = "  params=" + params
+			extraParams += "  params=" + params
 		}
 
 		switch {
