@@ -28,22 +28,41 @@ The web UI is optional. It just adds a browser chat on top of the same MCP serve
 This repo pairs an MCP server with a chat UI, but you don't have to use both.
 
 - **Building an agent or app?** Point any MCP client at this server in HTTP mode. The 29 tools become your data layer.
-- **Prefer plain REST?** Skip the MCP layer entirely and call a OneBusAway REST server directly. Any OBA-compatible backend works, including [maglev](https://github.com/OneBusAway/maglev) and the [official OBA API](https://developer.onebusaway.org/api/where).
+- **Prefer plain REST?** Skip the MCP layer and call a OneBusAway REST server directly. Both [onebusaway-application-modules](https://github.com/OneBusAway/onebusaway-application-modules) (the original Java implementation) and [maglev](https://github.com/OneBusAway/maglev) (its next-generation Go rewrite, same REST API) work as backends.
 - **Want a browser starting point?** Fork [`ui/`](./ui/) and adapt it.
 
 The transit data is the same either way. Pick the layer that fits your project.
 
 ## Get started
 
-### The MCP server, with Claude Code
+### Register with a CLI AI tool
+
+Build the binary first:
 
 ```sh
 cd mcp
 make build
-make mcp-add        # registers with Claude Code (user scope)
 ```
 
-Start a new Claude Code session and ask a transit question.
+Then hook it into your MCP-compatible tool. Claude Code has a shortcut:
+
+```sh
+make mcp-add        # registers with Claude Code at user scope
+```
+
+For any other tool (Claude Desktop, opencode, Gemini CLI, or your own), add a stdio MCP entry that points at the built binary:
+
+```json
+{
+  "command": "/absolute/path/to/mcp/oba-mcp",
+  "env": {
+    "OBA_BASE_URL": "http://localhost:4000",
+    "OBA_API_KEY": "your-key"
+  }
+}
+```
+
+Start a fresh session in your tool and ask a transit question.
 
 ### MCP server + web UI, locally
 
