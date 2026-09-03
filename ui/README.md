@@ -1,6 +1,6 @@
-# onebusaway-mcp — UI
+# onebusaway-mcp-server UI
 
-SvelteKit web chat interface for the [OneBusAway MCP server](../mcp/). Ask questions in plain English and get real-time transit data — arrivals, routes, stops, and live maps.
+SvelteKit web chat interface for the [OneBusAway MCP server](../mcp/). Ask questions in plain English and get real-time transit data: arrivals, routes, stops, and live maps.
 
 ## Features
 
@@ -50,7 +50,7 @@ MCP bearer token or the upstream OBA API key.
 | Setting  | Default                     | Description                                                      |
 | -------- | --------------------------- | ---------------------------------------------------------------- |
 | Provider | Anthropic                   | AI provider: Anthropic, OpenAI, OpenRouter, Ollama, llama-server |
-| API Key  | —                           | API key for the selected provider                                |
+| API Key  | none                        | API key for the selected provider                                |
 | Model    | `claude-haiku-4-5-20251001` | Model to use for chat                                            |
 
 Provider settings are stored in `localStorage`. Configure the UI server with

@@ -1,103 +1,113 @@
-# oba-mcp
+# onebusaway-mcp-server
 
-An MCP (Model Context Protocol) server that wraps the [OneBusAway](https://onebusaway.org) REST API, giving LLMs real-time access to transit data — arrivals, routes, stops, vehicles, and schedules.
+A Model Context Protocol server that gives LLMs live access to transit data. One Go binary, 29 tools, powered by the [OneBusAway](https://onebusaway.org) API.
 
-```
-LLM (Claude, etc.)  ←MCP→  oba-mcp  ←HTTP→  maglev (OBA API)  ←GTFS/GTFS-RT
-```
+Use it with Claude, Claude Code, opencode, or any MCP-compatible client to answer questions like *"When does the next bus arrive at my stop?"*, *"Where are the vehicles on route P right now?"*, or *"What's the schedule for stop 1_1013 on a weekday?"*.
 
-## Quick Start
+## How it works
+
+A tool call from your LLM becomes an HTTP request to a OneBusAway backend, which returns live data from GTFS static and GTFS-realtime feeds. This server handles the plumbing: parsing, caching, retries, circuit breaking, and structured responses.
+
+## Quick start
+
+Pick the mode that matches how you use it.
+
+**Stdio, for Claude Code, Claude Desktop, opencode:**
 
 ```sh
-# Local (stdio mode — used by Claude Code, Claude Desktop, opencode)
 make build
-make mcp-add          # registers with Claude Code, all projects
+make mcp-add          # registers with Claude Code (user scope)
+```
 
-# Local HTTP mode — requires a bearer token, for development only
+Start a new session in your MCP client and ask a transit question.
+
+**HTTP, for local development or private-network gateway deployments:**
+
+```sh
 OBA_API_KEY=test OBA_HTTP_AUTH_TOKEN=local-dev-token make serve-http
+```
 
-# Explicit JSON + dotenv files
+**With explicit config files:**
+
+```sh
 make run-config CONFIG=config.json ENV_FILE=.env
+```
 
-# Docker
+**Docker:**
+
+```sh
 docker compose up -d
 ```
 
 ## Requirements
 
-- Go 1.26.5+ (local builds; matches `go.mod`)
-- A running [maglev](https://github.com/OneBusAway/maglev) or OBA-compatible API at `$OBA_BASE_URL`
+- Go 1.26.5 or newer (matches `go.mod`)
+- A running [maglev](https://github.com/OneBusAway/maglev) or another OBA-compatible API reachable at `$OBA_BASE_URL`
 
 ## Configuration
 
-The server supports JSON, dotenv, and deployment environment variables. Every
-source resolves into one typed configuration with this precedence:
+Every setting can come from a JSON file, a dotenv file, or the process environment. When more than one source defines the same value, the later one wins:
 
 ```text
-compiled defaults < config.json < .env < process environment
+compiled defaults  <  config.json  <  .env  <  process environment
 ```
 
-Neither file is required, so existing environment-only deployments continue
-to work. Files are loaded only when explicitly selected; the server does not
-search its working directory automatically.
+Files are optional. The server never searches the working directory; you must point at each file explicitly.
 
 ```sh
 cp config.example.json config.json
 cp .env.example .env
 
 ./oba-mcp --config ./config.json --env-file ./.env
-# or
+# or via env vars:
 OBA_CONFIG_FILE=./config.json OBA_ENV_FILE=./.env ./oba-mcp
 
-# Validate without starting the MCP server
+# Validate config without starting the server:
 ./oba-mcp --check-config --config ./config.json --env-file ./.env
 
-# Inspect the effective configuration; secrets are always redacted
+# See what the server actually loaded (secrets are always redacted):
 ./oba-mcp --print-config --config ./config.json --env-file ./.env
 ```
 
-Use `config.json` for stable non-secret settings and `.env` for local secrets.
-In production, prefer deployment environment variables or a secret manager for
-`OBA_API_KEY` and `OBA_HTTP_AUTH_TOKEN`. The real `config.json` and `.env` are
-ignored by Git; commit only the provided examples and schema.
+Use `config.json` for stable non-secret settings, `.env` for local secrets, and deployment environment variables (or a secret manager) for `OBA_API_KEY` and `OBA_HTTP_AUTH_TOKEN` in production. The real `config.json` and `.env` are gitignored; commit only the example and schema files.
 
-See [CONFIGURATION.md](CONFIGURATION.md) for complete stdio, HTTP, Make,
-Docker, and MCP-client startup instructions.
+For every option and the full startup story, see [CONFIGURATION.md](CONFIGURATION.md).
 
-Transport is separate from MCP protocol version: transport selects `stdio` or
-Streamable HTTP, while the MCP SDK negotiates protocol compatibility. The HTTP
-auth token protects the oba-mcp service boundary; it is not a complete OAuth or
-OIDC authorization implementation.
+A note on transport: `OBA_TRANSPORT` picks how the server accepts calls (`stdio` or `streamable-http`), which is independent of the MCP protocol version. The MCP SDK negotiates compatibility on its own. The HTTP bearer token protects the service boundary; it is not a full OAuth or OIDC implementation.
 
-| Env var | Default | Description |
-|---|---|---|
-| `OBA_CONFIG_FILE` | none | Explicit path to `config.json`; `--config` takes precedence |
-| `OBA_ENV_FILE` | none | Explicit path to a dotenv file; `--env-file` takes precedence |
+### Environment variables
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `OBA_CONFIG_FILE` | none | Path to `config.json` (overridden by `--config`) |
+| `OBA_ENV_FILE` | none | Path to a dotenv file (overridden by `--env-file`) |
 | `OBA_BASE_URL` | `http://localhost:4000` | OBA-compatible API URL |
-| `OBA_API_KEY` | required | OBA API key; inject it from a deployment secret |
-| `OBA_TRANSPORT` | `stdio` | `stdio` or canonical `streamable-http`; legacy `http` is accepted as an alias |
-| `OBA_TOOL_PROFILE` | `all` | `all` exposes all 29 tools; `rider` exposes the 16 common passenger tools |
-| `OBA_PORT` | `8080` | Port for HTTP mode |
-| `OBA_HTTP_BIND_ADDR` | `127.0.0.1` | HTTP listener address; use a private network address for a gateway deployment |
-| `OBA_HTTP_AUTH_TOKEN` | required in HTTP mode | Secret shared only by the MCP server and its authentication gateway |
-| `OBA_ALLOWED_ORIGINS` | none | Comma-separated exact browser origins; all other browser origins receive `403` |
+| `OBA_API_KEY` | required | OBA API key. Inject from a secret manager in production |
+| `OBA_TRANSPORT` | `stdio` | `stdio` or `streamable-http` (legacy `http` alias accepted) |
+| `OBA_TOOL_PROFILE` | `all` | `all` = all 29 tools, `rider` = 16 passenger-facing tools |
+| `OBA_PORT` | `8080` | HTTP listener port |
+| `OBA_HTTP_BIND_ADDR` | `127.0.0.1` | HTTP listener address. Use a private network address for a gateway deployment |
+| `OBA_HTTP_AUTH_TOKEN` | required in HTTP mode | Shared secret between the server and its authentication gateway |
+| `OBA_ALLOWED_ORIGINS` | none | Comma-separated browser origins; all others get `403` |
 | `OBA_LOG` | `/tmp/oba-mcp.log` | Log file path (rotated automatically) |
-| `OBA_LOG_FORMAT` | `text` | Canonical log format: `text` or `json` |
-| `OBA_LOG_JSON` | unset | Legacy `0`/`1` alias; conflicting format variables are rejected |
-| `OBA_CACHE` | `~/.cache/oba-mcp/cache.db` | SQLite persistent cache; empty means memory-only |
+| `OBA_LOG_FORMAT` | `text` | `text` or `json` |
+| `OBA_LOG_JSON` | unset | Legacy `0`/`1` alias. Conflicting log format vars are rejected |
+| `OBA_CACHE` | `~/.cache/oba-mcp/cache.db` | SQLite cache path; empty means memory-only |
 
 ## Logs
 
-Logs rotate automatically (10 MB max, 3 files kept, 7-day expiry, gzip-compressed).
+Logs rotate automatically: 10 MB max per file, 3 files kept, 7-day expiry, gzip-compressed.
 
 **Human-readable (default):**
-```
+
+```sh
 tail -f /tmp/oba-mcp.log
 # or
 make logs
 ```
 
 Sample output:
+
 ```
 10:42:30 [START] http://localhost:4000
 10:42:31 [CACHE] /home/user/.cache/oba-mcp/cache.db
@@ -109,39 +119,37 @@ Sample output:
 ```
 
 **JSON (for log aggregators):**
+
 ```sh
 OBA_LOG_FORMAT=json ./oba-mcp
 ```
 
-HTTP deployments also expose unauthenticated `/healthz` and `/readyz` probes.
-`/metrics` uses the MCP bearer token and returns privacy-safe Prometheus
-metrics. See the [Phase 6 operations guide](../docs/production/phase-6-operations.md)
-for lifecycle semantics, dashboard queries, runbooks, and retention rules.
+HTTP deployments also expose:
+
+- `/healthz` and `/readyz`: unauthenticated liveness and readiness probes.
+- `/metrics`: Prometheus metrics behind the MCP bearer token, privacy-safe.
+
+Full operational detail (lifecycle, dashboards, runbooks, retention) is in the [Phase 6 operations guide](../docs/production/phase-6-operations.md).
 
 ## Docker
 
-The Docker image requires explicit HTTP configuration and contains no API-key default. The Compose file binds MCP to loopback for local development and does not publish Maglev.
+The Docker image requires explicit HTTP configuration and ships no API-key default. The Compose file binds the MCP service to loopback and does not publish the maglev container.
 
 ```sh
-# Start
 docker compose up -d
-
-# Follow logs
-make docker-logs
-
-# Stop
+make docker-logs      # follow container logs
 docker compose down
 ```
 
-If maglev runs outside Docker (e.g. on the host at port 4000):
+If maglev runs outside Docker (say on the host at port 4000):
+
 ```yaml
-# in docker-compose.yml
+# docker-compose.yml
 environment:
   OBA_BASE_URL: http://host.docker.internal:4000
 ```
 
-For a file-based container deployment, mount the non-secret JSON read-only and
-inject credentials separately:
+For a file-based deployment, mount the non-secret JSON read-only and inject credentials separately:
 
 ```yaml
 services:
@@ -154,25 +162,28 @@ services:
       OBA_HTTP_AUTH_TOKEN: ${OBA_HTTP_AUTH_TOKEN:?OBA_HTTP_AUTH_TOKEN is required}
 ```
 
-## Register with MCP Clients
+## Registering with MCP clients
 
-**Claude Code / Claude Desktop / opencode (stdio):**
+**Claude Code, Claude Desktop, opencode (stdio):**
+
 ```sh
 make mcp-add
 ```
 
 Or configure manually:
+
 ```json
 {
   "command": "/path/to/oba-mcp",
   "env": {
     "OBA_BASE_URL": "http://localhost:4000",
-    "OBA_API_KEY":  "test"
+    "OBA_API_KEY": "test"
   }
 }
 ```
 
-**HTTP mode** (transit-ui or other HTTP MCP clients):
+**HTTP mode** (for the transit UI or any HTTP MCP client):
+
 ```json
 {
   "url": "http://localhost:8080/mcp",
@@ -182,51 +193,54 @@ Or configure manually:
 
 ## Public HTTP deployment
 
-Do not expose the MCP container or Maglev directly to the internet. Put a TLS
-and authentication gateway in front of the MCP server. The gateway must
-authenticate and authorize each caller, apply caller/IP rate limits, generate a
-request ID, and proxy only to the private MCP listener. It must strip any
-client-supplied `Authorization` header and add `Authorization: Bearer
-$OBA_HTTP_AUTH_TOKEN` only on the private upstream connection. When proxying to
-a loopback listener, rewrite `Host` to `localhost` so the MCP library's DNS
-rebinding protection remains enabled. Keep `OBA_HTTP_AUTH_TOKEN` and
-`OBA_API_KEY` in the deployment secret manager; never put either in Compose,
-source control, browser storage, or tool output.
+Do not expose the MCP container or a maglev backend directly to the internet.
+
+Put a TLS + authentication gateway in front. The gateway must:
+
+- Authenticate and authorize every caller.
+- Apply per-caller and per-IP rate limits.
+- Generate a request ID.
+- Proxy only to the private MCP listener.
+- Strip any client-supplied `Authorization` header, then add `Authorization: Bearer $OBA_HTTP_AUTH_TOKEN` on the private hop.
+- Rewrite `Host` to `localhost` when proxying to a loopback listener, so the MCP library's DNS-rebinding protection stays enabled.
+
+Keep `OBA_HTTP_AUTH_TOKEN` and `OBA_API_KEY` in the deployment secret manager. Never put them in Compose files, source control, browser storage, or tool output.
 
 ## Tools
 
-The default `all` profile exposes the full 29-tool catalog below, including
-advanced operations such as shapes, raw ID enumeration, metadata, and fleet
-queries. Set `OBA_TOOL_PROFILE=rider` to expose only the 16 passenger-facing
-tools.
+The default `all` profile exposes the full 29-tool catalog below. Set `OBA_TOOL_PROFILE=rider` to expose only the 16 passenger-facing tools.
 
 ### Agencies
+
 | Tool | Description |
-|------|-------------|
+| --- | --- |
 | `get_agencies` | List all agencies |
 | `get_agency` | Agency details by ID |
 
 ### Stops
+
 | Tool | Description |
-|------|-------------|
-| `get_stop` | Stop by ID — name, location, routes |
+| --- | --- |
+| `get_stop` | Stop by ID: name, location, routes |
 | `search_stops` | Search by name or code (max 5) |
 | `find_stops_near_location` | Stops within a radius of lat/lon (max 20) |
 | `get_stops_for_agency` | All stops for an agency (max 50) |
 | `get_stop_ids_for_agency` | All stop IDs for an agency (max 100) |
-| `get_stop_schedule` | Full-day timetable — all trips and departure times |
+| `get_stop_schedule` | Full-day timetable: all trips and departure times |
 | `get_stop_overview` | Composite: stop info + next 5 arrivals + routes in one call |
 
 ### Arrivals & Departures
+
 | Tool | Description |
-|------|-------------|
-| `get_arrivals_for_stop` | Next arrivals at a stop (default: 60 min window, max 10) |
+| --- | --- |
+| `get_arrivals_for_stop` | Next arrivals at a stop (default: 60-min window, max 10) |
 | `get_arrival_and_departure_for_stop` | Single-arrival lookup used for each per-trip tracking refresh |
 | `get_arrivals_for_location` | Arrivals near a lat/lon coordinate (max 10) |
 
 ### Routes
+
 | Tool | Description |
-|------|-------------|
+| --- | --- |
 | `get_route` | Route by ID |
 | `search_routes` | Search by name or number (max 5) |
 | `get_routes_for_agency` | All routes for an agency (max 30) |
@@ -236,10 +250,11 @@ tools.
 | `get_schedule_for_route` | Route structure: directions, trip IDs, stop order |
 
 ### Trips & Vehicles
+
 | Tool | Description |
-|------|-------------|
+| --- | --- |
 | `get_trip` | Static trip info |
-| `get_trip_details` | Real-time: position, phase, schedule deviation |
+| `get_trip_details` | Real-time position, phase, schedule deviation |
 | `get_trip_for_vehicle` | Active trip for a vehicle |
 | `get_trips_for_route` | Active trips on a route now (max 20) |
 | `get_trips_for_location` | Active trips near a lat/lon (max 20) |
@@ -247,25 +262,26 @@ tools.
 | `get_block` | Full day of trips for a vehicle by block ID |
 
 ### Shapes & System
+
 | Tool | Description |
-|------|-------------|
+| --- | --- |
 | `get_shape` | Polyline lat/lon points for a route/trip |
 | `get_current_time` | Current server time |
 | `get_metadata` | Server version and GTFS feed freshness |
 
-## Prompts (3 total)
+## Prompts
 
 | Prompt | Description |
-|--------|-------------|
-| `transit_assistant` | Full system prompt — load this first for best results |
+| --- | --- |
+| `transit_assistant` | Full system prompt. Load this first for best results |
 | `next_bus` | Starter for "when is the next bus?" queries |
 | `explore_agency` | Starter for exploring all routes and stops |
 
 ## Caching
 
-| Data | TTL | Written to SQLite? |
-|---|---|---|
-| Static (agencies, routes, stops, shapes, schedules) | 60 min | Yes — persists across sessions |
+| Data | TTL | Persisted to SQLite? |
+| --- | --- | --- |
+| Static (agencies, routes, stops, shapes, schedules) | 60 min | Yes, survives across sessions |
 | Real-time (arrivals, vehicle positions, trip status) | Disabled | No |
 
 ## Makefile
