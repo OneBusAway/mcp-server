@@ -6,6 +6,9 @@ import { RIDER_TOOLS, ARRIVAL_FOCUSED_TOOLS } from '$lib/mcp/tools.js';
 import { sse } from './stream.js';
 import { dispatchTool, createMapState } from './dispatch.js';
 import { flushMapState } from './map.js';
+import { compactToolResult, mergeLedger, formatLedgerForSystem } from './compact.js';
+
+const MODEL_MAX_TOKENS = 512;
 
 // ---------------------------------------------------------------------------
 // System prompts
@@ -103,6 +106,7 @@ export async function POST({ request, fetch }) {
 	const apiKey = body.apiKey ?? settings.apiKey ?? '';
 	const model = body.model ?? settings.model ?? 'claude-haiku-4-5-20251001';
 	const allTools = (body.toolMode ?? 'rider') === 'all';
+	const sessionLedger = body.sessionLedger ?? { stops: {}, routes: {}, agencies: {} };
 	const provCfg = getProviderCfg(provider);
 
 	if (!apiKey && !provCfg.local) {
@@ -126,9 +130,19 @@ export async function POST({ request, fetch }) {
 			try {
 				const msgs = messages.map((m) => ({ role: m.role, content: m.content ?? m.text }));
 				if (provider === 'anthropic') {
-					await streamAnthropic({ apiKey, model, msgs, tools, controller, mcp });
+					await streamAnthropic({ apiKey, model, msgs, tools, controller, mcp, sessionLedger });
 				} else {
-					await streamOpenAI({ provCfg, apiKey, model, msgs, tools, controller, isLocal, mcp });
+					await streamOpenAI({
+						provCfg,
+						apiKey,
+						model,
+						msgs,
+						tools,
+						controller,
+						isLocal,
+						mcp,
+						sessionLedger,
+					});
 				}
 				sse(controller, { t: 'done' });
 			} catch (e) {
@@ -152,17 +166,21 @@ export async function POST({ request, fetch }) {
 // Anthropic streaming
 // ---------------------------------------------------------------------------
 
-async function streamAnthropic({ apiKey, model, msgs, tools, controller, mcp }) {
+async function streamAnthropic({ apiKey, model, msgs, tools, controller, mcp, sessionLedger }) {
 	const client = new Anthropic({ apiKey });
 	let currentMsgs = msgs;
+	let ledger = sessionLedger;
 	const mapState = createMapState();
 	const emitted = { routeIds: new Set(), stopIds: new Set(), arrivalStopIds: new Set() };
 
 	for (let round = 0; round < 8; round++) {
+		const ledgerBlock = formatLedgerForSystem(ledger);
+		const system = ledgerBlock ? `${SYSTEM}\n\n${ledgerBlock}` : SYSTEM;
+
 		const stream = client.messages.stream({
 			model,
-			max_tokens: 1024,
-			system: SYSTEM,
+			max_tokens: MODEL_MAX_TOKENS,
+			system,
 			tools,
 			messages: currentMsgs,
 		});
@@ -176,6 +194,7 @@ async function streamAnthropic({ apiKey, model, msgs, tools, controller, mcp }) 
 
 		if (finalMsg.stop_reason === 'tool_use') {
 			const toolResults = [];
+			const ledgerAdds = [];
 			for (const block of finalMsg.content) {
 				if (block.type !== 'tool_use') continue;
 				const result = await dispatchTool(
@@ -187,11 +206,17 @@ async function streamAnthropic({ apiKey, model, msgs, tools, controller, mcp }) 
 					emitted,
 					mcp,
 				);
+				const compact = compactToolResult(block.name, block.input, result);
+				ledgerAdds.push(...compact.ledgerAdds);
 				toolResults.push({
 					type: 'tool_result',
 					tool_use_id: block.id,
-					content: JSON.stringify(result),
+					content: JSON.stringify(compact.payload),
 				});
+			}
+			if (ledgerAdds.length) {
+				ledger = mergeLedger(ledger, ledgerAdds);
+				sse(controller, { t: 'ledger_add', v: ledgerAdds });
 			}
 			currentMsgs = [...currentMsgs, { role: 'user', content: toolResults }];
 		} else {
@@ -260,7 +285,17 @@ function getProviderAdapter(id) {
 	return PROVIDER_ADAPTERS[id] ?? _DEFAULT_ADAPTER;
 }
 
-async function streamOpenAI({ provCfg, apiKey, model, msgs, tools, controller, isLocal, mcp }) {
+async function streamOpenAI({
+	provCfg,
+	apiKey,
+	model,
+	msgs,
+	tools,
+	controller,
+	isLocal,
+	mcp,
+	sessionLedger,
+}) {
 	const baseURL = provCfg.baseUrl ?? 'https://api.openai.com/v1';
 	const adapter = getProviderAdapter(provCfg.id);
 	const openaiTools = tools.map((t) => ({
@@ -272,12 +307,19 @@ async function streamOpenAI({ provCfg, apiKey, model, msgs, tools, controller, i
 		},
 	}));
 
-	const system = isLocal ? LOCAL_SYSTEM : SYSTEM;
-	let oaiMsgs = [{ role: 'system', content: system }, ...msgs];
+	const baseSystem = isLocal ? LOCAL_SYSTEM : SYSTEM;
+	let ledger = sessionLedger;
+	let oaiMsgs = [{ role: 'system', content: baseSystem }, ...msgs];
 	const mapState = createMapState();
 	const emitted = { routeIds: new Set(), stopIds: new Set(), arrivalStopIds: new Set() };
 
 	for (let round = 0; round < 8; round++) {
+		const ledgerBlock = formatLedgerForSystem(ledger);
+		oaiMsgs[0] = {
+			role: 'system',
+			content: ledgerBlock ? `${baseSystem}\n\n${ledgerBlock}` : baseSystem,
+		};
+
 		const res = await fetch(`${baseURL}/chat/completions`, {
 			method: 'POST',
 			headers: {
@@ -290,7 +332,7 @@ async function streamOpenAI({ provCfg, apiKey, model, msgs, tools, controller, i
 				model,
 				messages: oaiMsgs,
 				tools: openaiTools,
-				max_tokens: 2048,
+				max_tokens: MODEL_MAX_TOKENS,
 				stream: true,
 				...adapter.extraBody(),
 			}),
@@ -335,6 +377,7 @@ async function streamOpenAI({ provCfg, apiKey, model, msgs, tools, controller, i
 		];
 
 		const toolMsgs = [];
+		const ledgerAdds = [];
 		for (const tc of toolCalls) {
 			let args;
 			try {
@@ -351,7 +394,17 @@ async function streamOpenAI({ provCfg, apiKey, model, msgs, tools, controller, i
 				emitted,
 				mcp,
 			);
-			toolMsgs.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(result) });
+			const compact = compactToolResult(tc.function.name, args, result);
+			ledgerAdds.push(...compact.ledgerAdds);
+			toolMsgs.push({
+				role: 'tool',
+				tool_call_id: tc.id,
+				content: JSON.stringify(compact.payload),
+			});
+		}
+		if (ledgerAdds.length) {
+			ledger = mergeLedger(ledger, ledgerAdds);
+			sse(controller, { t: 'ledger_add', v: ledgerAdds });
 		}
 		oaiMsgs = [...oaiMsgs, ...toolMsgs];
 	}

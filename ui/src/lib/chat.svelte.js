@@ -4,7 +4,39 @@
  */
 
 const STORAGE_KEY = 'oba_chat_history';
+const LEDGER_STORAGE_KEY = 'oba_chat_ledger';
 const MAX_HISTORY = 80;
+const LEDGER_MAX_ENTRIES_PER_KIND = 30;
+
+function emptyLedger() {
+	return { stops: {}, routes: {}, agencies: {} };
+}
+
+function loadLedger() {
+	try {
+		const raw = JSON.parse(localStorage.getItem(LEDGER_STORAGE_KEY) ?? 'null');
+		if (!raw || typeof raw !== 'object') return emptyLedger();
+		return {
+			stops: raw.stops ?? {},
+			routes: raw.routes ?? {},
+			agencies: raw.agencies ?? {},
+		};
+	} catch {
+		return emptyLedger();
+	}
+}
+
+function saveLedger(ledger) {
+	try {
+		localStorage.setItem(LEDGER_STORAGE_KEY, JSON.stringify(ledger));
+	} catch {}
+}
+
+function capBucket(bucket) {
+	const entries = Object.entries(bucket);
+	if (entries.length <= LEDGER_MAX_ENTRIES_PER_KIND) return bucket;
+	return Object.fromEntries(entries.slice(-LEDGER_MAX_ENTRIES_PER_KIND));
+}
 
 const COMBINABLE_MAP_TYPES = new Set(['map', 'route_map']);
 
@@ -53,11 +85,31 @@ function saveToStorage(msgs) {
 
 function createChatStore() {
 	let messages = $state(typeof localStorage !== 'undefined' ? loadFromStorage() : []);
+	let sessionLedger = $state(typeof localStorage !== 'undefined' ? loadLedger() : emptyLedger());
 	let loading = $state(false); // true while waiting for first byte (shows BusLoader)
 	let streaming = $state(false); // true while text is flowing in (input disabled)
 	let error = $state('');
 	let draft = $state('');
 	let _abort = null;
+
+	function applyLedgerAdds(adds) {
+		if (!Array.isArray(adds) || !adds.length) return;
+		const next = {
+			stops: { ...sessionLedger.stops },
+			routes: { ...sessionLedger.routes },
+			agencies: { ...sessionLedger.agencies },
+		};
+		for (const entry of adds) {
+			const bucket = next[entry.kind + 's'];
+			if (bucket && entry.id) bucket[entry.id] = entry.name ?? entry.id;
+		}
+		sessionLedger = {
+			stops: capBucket(next.stops),
+			routes: capBucket(next.routes),
+			agencies: capBucket(next.agencies),
+		};
+		saveLedger(sessionLedger);
+	}
 
 	function abort() {
 		_abort?.abort();
@@ -80,6 +132,7 @@ function createChatStore() {
 				signal: _abort.signal,
 				body: JSON.stringify({
 					messages: messages.map((m) => ({ role: m.role, content: m.text })),
+					sessionLedger,
 					provider,
 					apiKey,
 					model,
@@ -180,6 +233,8 @@ function createChatStore() {
 						}
 					} else if (evt.t === 'map_suggestion') {
 						lastMsg.mapSuggestion = evt.v;
+					} else if (evt.t === 'ledger_add') {
+						applyLedgerAdds(evt.v);
 					} else if (evt.t === 'error') {
 						throw new Error(evt.v);
 					} else if (evt.t === 'done') {
@@ -214,11 +269,13 @@ function createChatStore() {
 
 	function clear() {
 		messages = [];
+		sessionLedger = emptyLedger();
 		error = '';
 		loading = false;
 		streaming = false;
 		draft = '';
 		saveToStorage([]);
+		saveLedger(sessionLedger);
 	}
 
 	return {
