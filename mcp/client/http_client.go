@@ -47,6 +47,7 @@ var realtimePrefixes = []string{
 	"/api/where/arrivals-and-departures-for-location.json",
 	"/api/where/trip-details/",
 	"/api/where/trip-for-vehicle/",
+	"/api/where/trips-for-route/",
 	"/api/where/vehicles-for-agency/",
 	"/api/where/trips-for-location.json",
 	"/api/where/current-time.json",

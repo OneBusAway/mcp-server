@@ -77,14 +77,17 @@ export function vehicleFromTripDetails(update, tripInfo = {}) {
 	};
 }
 
-/** Markers are keyed by active trip ID, with vehicle ID as the fallback. */
+// Prefer vehicle_id as primary identity: trips-for-route can report the same
+// active_trip_id for two different vehicles (one serving the trip, another
+// parked at the base), which would otherwise collapse them into one marker
+// that flip-flops between their positions on every refresh.
 export function vehicleAliases(vehicle) {
 	const aliases = [];
+	const vehicleId = cleanId(vehicle?.vehicle_id);
 	const activeTripId = cleanId(vehicle?.active_trip_id);
 	const tripId = cleanId(vehicle?.trip_id);
-	const vehicleId = cleanId(vehicle?.vehicle_id);
-	if (activeTripId) aliases.push(`active-trip:${activeTripId}`);
 	if (vehicleId) aliases.push(`vehicle:${vehicleId}`);
+	if (activeTripId) aliases.push(`active-trip:${activeTripId}`);
 	if (tripId) aliases.push(`arrival-trip:${tripId}`);
 	return aliases;
 }

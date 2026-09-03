@@ -4,7 +4,7 @@
 	// Phase U2.1 (see mcp-features/PRODUCTION_UI_TODO.md and PRODUCTION_UI_AUDIT.md)
 	// splits this file into engine.js, geometry.js, markers.js, and vehicle-animation.js
 	// with proper types; re-enable checkJs then.
-	import { onMount, onDestroy, tick, untrack } from 'svelte';
+	import { onMount, onDestroy, tick } from 'svelte';
 	import { browser } from '$app/environment';
 	import { settings } from '$lib/settings.svelte.js';
 	import { callTool } from '$lib/mcp.js';
@@ -15,7 +15,6 @@
 		deduplicateVehicles,
 		hasVehiclePosition,
 		replaceRefreshedVehicles,
-		vehicleFromArrival,
 		vehicleFromTripDetails,
 		vehicleKey,
 		vehicleMatchesRoute,
@@ -136,7 +135,6 @@
 	let vehicleMarkerMap = new Map();
 	let localVehicles = $state([]);
 	let stopFeedVehicles = $state([]);
-	let trackedVehicleOverrides = $state([]);
 	let isFullscreen = $state(false);
 	let showThemes = $state(false);
 	let activeTheme = $state(settings.mapStyle);
@@ -158,7 +156,7 @@
 		!!stopId && tracking.trackers.some((tracker) => tracker.stop_id === stopId),
 	);
 	const visibleVehicles = $derived.by(() =>
-		stopId ? deduplicateVehicles([...stopFeedVehicles, ...trackedVehicleOverrides]) : localVehicles,
+		stopId ? deduplicateVehicles(stopFeedVehicles) : localVehicles,
 	);
 	const stopRouteIds = $derived.by(() => [
 		...new Set(routes.map((route) => route.route_id).filter(Boolean)),
@@ -278,6 +276,38 @@
 		return el;
 	}
 
+	const ANIMATION_DURATION_MS = 1200;
+	const MIN_ANIMATION_DISTANCE_M = 2;
+
+	function animateMarkerTo(entry, toLngLat) {
+		if (entry._animRaf) cancelAnimationFrame(entry._animRaf);
+		const from = entry.marker.getLngLat();
+		const [toLng, toLat] = toLngLat;
+		const fromLng = from.lng;
+		const fromLat = from.lat;
+		const midLat = (fromLat + toLat) / 2;
+		const distanceM = Math.hypot(
+			(toLng - fromLng) * mPerDeg(midLat),
+			(toLat - fromLat) * METRES_PER_DEG,
+		);
+		if (distanceM < MIN_ANIMATION_DISTANCE_M) {
+			entry.marker.setLngLat(toLngLat);
+			return;
+		}
+		const start = performance.now();
+		const step = (now) => {
+			const t = Math.min((now - start) / ANIMATION_DURATION_MS, 1);
+			const ease = 1 - Math.pow(1 - t, 3);
+			entry.marker.setLngLat([
+				fromLng + (toLng - fromLng) * ease,
+				fromLat + (toLat - fromLat) * ease,
+			]);
+			if (t < 1) entry._animRaf = requestAnimationFrame(step);
+			else entry._animRaf = null;
+		};
+		entry._animRaf = requestAnimationFrame(step);
+	}
+
 	// Metres per degree of longitude at a given latitude
 	const METRES_PER_DEG = 111320;
 	function mPerDeg(lat) {
@@ -324,6 +354,8 @@
 		return vehicleMatchesRoute(vehicle, direction.route_id);
 	}
 
+	const SNAP_DISTANCE_M = 400;
+
 	function routeCoordinatesForVehicle(vehicle, target) {
 		const candidates = routes
 			.map((direction) => ({ direction, coordinates: routeCoordinates(direction) }))
@@ -347,6 +379,8 @@
 			const score = targetProjection.distM;
 			if (!best || score < best.score) best = { coordinates, score };
 		}
+		// Reject vehicles too far from their route — likely a yard bus, bad GPS, or wrong route match.
+		if (best && vehicleRequiresRouteGeometry(vehicle) && best.score > SNAP_DISTANCE_M) return null;
 		return best?.coordinates ?? null;
 	}
 
@@ -408,7 +442,7 @@
 				}
 				entry.sourceLngLat = lngLat;
 				entry.targetLngLat = targetSnapped;
-				marker.setLngLat(targetSnapped);
+				animateMarkerTo(entry, targetSnapped);
 				if (popup) popup.setLngLat(targetSnapped).setText(popupText);
 			} else {
 				const el = makeBusElement(v, isTracked);
@@ -500,8 +534,7 @@
 						headsign: vehicle.headsign,
 					}),
 				)
-				.filter(Boolean)
-				.filter((vehicle) => routeCoordinatesForVehicle(vehicle, [vehicle.lon, vehicle.lat]));
+				.filter(Boolean);
 		});
 		if (request === stopRouteRefreshRequest) {
 			stopFeedVehicles = deduplicateVehicles(vehicles);
@@ -822,44 +855,21 @@
 		};
 	});
 
-	// Tracked positions are overlays on top of the route feed; untracking discards them instantly.
+	// Tracking is a pure visual highlight — positions always come from the same
+	// trips-for-route feed. When trackers change, kick an immediate refresh so
+	// the tracked bus updates without waiting for the next 30s interval.
+	let lastTrackerSignature = '';
 	$effect(() => {
-		if (!stopId) return;
-		const liveArrivals = tracking.stopArrivals[stopId];
-		const trackedTripIds = new Set(
-			tracking.trackers.filter((t) => t.stop_id === stopId).map((t) => t.trip_id),
-		);
-		const currentOverrides = untrack(() => trackedVehicleOverrides);
-		if (!hasStopTracker) {
-			if (currentOverrides.length) {
-				// Merge the last override position into the base feed to prevent a brief gap before the next route poll.
-				const currentBase = untrack(() => stopFeedVehicles);
-				stopFeedVehicles = deduplicateVehicles([...currentBase, ...currentOverrides]);
-			}
-			trackedVehicleOverrides = [];
-			return;
-		}
-		if (!Array.isArray(liveArrivals)) {
-			trackedVehicleOverrides = currentOverrides.filter((vehicle) =>
-				trackedTripIds.has(vehicle.trip_id),
-			);
-			return;
-		}
-		const vehicled = liveArrivals.filter(
-			(a) =>
-				a.trip_id &&
-				trackedTripIds.has(a.trip_id) &&
-				a.vehicle_lat != null &&
-				a.vehicle_lon != null,
-		);
-		const projectedUpdates = vehicled
-			.map(vehicleFromArrival)
-			.filter(Boolean)
-			.filter((vehicle) => routeCoordinatesForVehicle(vehicle, [vehicle.lon, vehicle.lat]));
-		trackedVehicleOverrides = deduplicateVehicles([
-			...currentOverrides.filter((vehicle) => trackedTripIds.has(vehicle.trip_id)),
-			...projectedUpdates,
-		]);
+		if (!stopId || !stopRouteIds.length) return;
+		const signature = tracking.trackers
+			.filter((t) => t.stop_id === stopId)
+			.map((t) => t.trip_id)
+			.sort()
+			.join(',');
+		if (signature === lastTrackerSignature) return;
+		const previous = lastTrackerSignature;
+		lastTrackerSignature = signature;
+		if (previous !== '' || signature !== '') refreshStopRouteVehicles(stopRouteIds);
 	});
 
 	onDestroy(() => {
@@ -870,6 +880,7 @@
 			vehicleRebuildRaf = null;
 		}
 		for (const entry of vehicleMarkerMap.values()) {
+			if (entry._animRaf) cancelAnimationFrame(entry._animRaf);
 			entry.popup?.remove();
 			entry.marker.remove();
 		}
