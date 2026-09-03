@@ -1,9 +1,7 @@
 <script>
 	// @ts-nocheck
-	// MapCard.svelte carries pre-existing MapLibre + augmented-marker typing debt.
-	// Phase U2.1 (see mcp-features/PRODUCTION_UI_TODO.md and PRODUCTION_UI_AUDIT.md)
-	// splits this file into engine.js, geometry.js, markers.js, and vehicle-animation.js
-	// with proper types; re-enable checkJs then.
+	// Typing debt: MapLibre marker augmentations. Re-enable checkJs after this
+	// file is split into engine/geometry/markers/vehicle-animation modules.
 	import { onMount, onDestroy, tick } from 'svelte';
 	import { browser } from '$app/environment';
 	import { settings } from '$lib/settings.svelte.js';

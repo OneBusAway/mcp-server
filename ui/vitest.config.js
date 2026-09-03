@@ -1,9 +1,8 @@
 import { defineConfig } from 'vitest/config';
 
-// The Svelte plugin is intentionally omitted here: Phase U0 lands the test
-// harness with no component tests yet, and @sveltejs/vite-plugin-svelte v7
-// trips on hot-update inside Vitest's Vite server. Phase U4 wires the plugin
-// back in with the correct hot: false shape once component tests exist.
+// The Svelte plugin is intentionally omitted: @sveltejs/vite-plugin-svelte v7
+// trips on hot-update inside Vitest's Vite server. Re-add it with hot: false
+// once component tests are introduced.
 export default defineConfig({
 	test: {
 		environment: 'jsdom',

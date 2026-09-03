@@ -79,4 +79,4 @@ uses the unauthenticated internal `/readyz` endpoint.
 - Image signing, vulnerability scanning, or an SBOM publication pipeline.
 
 Those are separate release requirements. The UI is intentionally omitted from
-the production Compose file until it satisfies its Phase U6 security work.
+the production Compose file until it satisfies its own security hardening work.

@@ -2,7 +2,7 @@
 
 SvelteKit chat client for the [OneBusAway MCP server](../mcp/). The UI holds no transit domain knowledge of its own — every fact rendered originates from a structured MCP tool result. This document is the map contributors should read before editing.
 
-For the dev loop and PR rules see [CONTRIBUTING.md](./CONTRIBUTING.md). For the production roadmap and phase gates see [PRODUCTION_UI_TODO.md](../../mcp-features/PRODUCTION_UI_TODO.md).
+For the dev loop and PR rules see [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## Runtime shape
 
@@ -52,9 +52,9 @@ src/
       TrackOffer.svelte        "Track this bus?" prompt
 ```
 
-### Target module map (post-U2 / post-U3)
+### Target module map
 
-Once the refactor phases land, the tree grows deeper and thinner:
+Aspirational — the tree should grow deeper and thinner as MCP client, LLM providers, cards, and map engines split into their own modules:
 
 ```
 src/lib/
@@ -89,7 +89,7 @@ src/lib/
     arrival-status.js          Pure window/miss detection
 ```
 
-The current tree is the starting point; the target tree is what U2 and U3 build toward. Refer to [PRODUCTION_UI_TODO.md](../../mcp-features/PRODUCTION_UI_TODO.md) for which phase owns each move.
+The current tree is the starting point; the target tree above is the direction to extract toward as modules grow past ~250 lines.
 
 ## Data flow
 
@@ -160,7 +160,7 @@ Load-bearing rules enforced in review:
 - **Unit** (`src/**/*.test.js`) — pure logic: `mcp/schemas.js`, `map/geometry.js`, `cards/*.fromToolResult`, `tracking/arrival-status.js`, `chat/coalesce.js`, LLM adapters replaying recorded provider streams.
 - **Component** (`src/**/*.test.svelte.js`) — `ArrivalsPanel`, `MapCard` with a mocked `MapEngine`.
 - **E2E** (`tests/e2e/*.spec.js`) — golden paths, provider swap, map-provider swap.
-- **Contract fixtures** (`tests/fixtures/mcp/<tool>.json`) — one per MCP tool, with a "future field" case and a "legacy" case; shared with [Phase U5](../../mcp-features/PRODUCTION_UI_TODO.md#phase-u5--evals) evals.
+- **Contract fixtures** (`tests/fixtures/mcp/<tool>.json`) — one per MCP tool, with a "future field" case and a "legacy" case.
 
 ## Deployment shape
 
