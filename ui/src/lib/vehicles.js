@@ -17,6 +17,20 @@ function cleanId(value) {
 	return id || null;
 }
 
+// Route numbers are not unique across agencies. Prefer the full OneBusAway
+// route ID whenever a vehicle supplies one.
+export function vehicleMatchesRoute(vehicle, routeId) {
+	const vehicleRouteId = cleanId(vehicle?.active_route_id ?? vehicle?.route_id);
+	const candidateRouteId = cleanId(routeId);
+	if (vehicleRouteId) return vehicleRouteId === candidateRouteId;
+	const routeName = cleanId(vehicle?.route_short_name);
+	return !!routeName && routeName === candidateRouteId?.split('_').at(-1);
+}
+
+export function vehicleRequiresRouteGeometry(vehicle) {
+	return !!cleanId(vehicle?.active_route_id ?? vehicle?.route_id);
+}
+
 export function vehicleFromArrival(arrival) {
 	if (
 		arrival?.vehicle_lat == null ||
@@ -40,8 +54,7 @@ export function vehicleFromArrival(arrival) {
 		route_short_name: arrival.active_route_id?.split('_').at(-1) ?? arrival.route_name,
 		headsign: arrival.active_headsign ?? arrival.headsign,
 		stops_away: arrival.number_of_stops_away,
-		bearing: arrival.vehicle_bearing ?? null,
-	};
+		};
 }
 
 export function vehicleFromTripDetails(update, tripInfo = {}) {
@@ -59,16 +72,12 @@ export function vehicleFromTripDetails(update, tripInfo = {}) {
 		...update,
 		arrival_route_id: update.route_id,
 		active_trip_id: activeTripId,
-		active_route_id: activeRouteId,
-		route_id: activeRouteId,
+		...(activeRouteId != null && { active_route_id: activeRouteId, route_id: activeRouteId }),
 		route_short_name: update.active_route_id?.split('_').at(-1) ?? tripInfo.route_short_name,
 	};
 }
 
-/**
- * WayFinder keys markers by active trip ID. Keep that identity consistent from
- * server aggregation through UI rendering, with vehicle ID as the fallback.
- */
+/** Markers are keyed by active trip ID, with vehicle ID as the fallback. */
 export function vehicleAliases(vehicle) {
 	const aliases = [];
 	const activeTripId = cleanId(vehicle?.active_trip_id);
@@ -103,8 +112,9 @@ function mergeDefined(existing, incoming) {
 }
 
 /**
- * Merge duplicate trip/vehicle records. Later positions win while route metadata
- * from an earlier arrival response is retained when a poll omits it.
+ * Merge duplicate trip/vehicle records. Incoming non-empty fields win except
+ * trip_id (first/current active trip is kept); route metadata from an earlier
+ * response is retained when a later poll omits it.
  */
 export function deduplicateVehicles(vehicles) {
 	const result = [];
@@ -135,15 +145,6 @@ export function deduplicateVehicles(vehicles) {
 	}
 
 	return result;
-}
-
-/** Merge live positions for tracked trips without replacing the rest of the map fleet. */
-export function mergeTrackedVehicleUpdates(current, updates, trackedTripIds) {
-	const tracked = trackedTripIds instanceof Set ? trackedTripIds : new Set(trackedTripIds ?? []);
-	const relevant = (Array.isArray(updates) ? updates : []).filter(
-		(vehicle) => vehicle?.trip_id && tracked.has(vehicle.trip_id),
-	);
-	return deduplicateVehicles([...(Array.isArray(current) ? current : []), ...relevant]);
 }
 
 export function replaceRefreshedVehicles(current, updates, refreshedTripIds) {

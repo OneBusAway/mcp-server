@@ -1,12 +1,26 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 
+	appconfig "oba-mcp/internal/config"
+
 	"github.com/santhosh-tekuri/jsonschema/v6"
 )
+
+func loadStartupConfig(args []string, lookupEnv func(string) (string, bool)) (appconfig.Config, bool, bool, error) {
+	cfg, checkConfig, printConfig, err := resolveStartupConfig(args, lookupEnv)
+	if err != nil {
+		return appconfig.Config{}, false, false, err
+	}
+	if err := cfg.Validate(); err != nil {
+		return appconfig.Config{}, false, false, fmt.Errorf("invalid configuration: %w", err)
+	}
+	return cfg, checkConfig, printConfig, nil
+}
 
 func TestLoadStartupConfigCLISelectorsOverrideEnvironmentSelectors(t *testing.T) {
 	directory := t.TempDir()

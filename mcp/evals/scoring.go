@@ -272,14 +272,6 @@ func isTermBoundaryAfter(text string, offset int) bool {
 	return !unicode.IsLetter(runeValue) && !unicode.IsNumber(runeValue)
 }
 
-func equalJSON(left, right json.RawMessage) bool {
-	var leftValue, rightValue any
-	if json.Unmarshal(left, &leftValue) != nil || json.Unmarshal(right, &rightValue) != nil {
-		return false
-	}
-	return reflect.DeepEqual(leftValue, rightValue)
-}
-
 // jsonContainsExpected checks that every key-value pair in expected exists in
 // actual with an equal value. Extra keys in actual are ignored, so a model
 // that passes optional parameters with valid values does not fail the check.

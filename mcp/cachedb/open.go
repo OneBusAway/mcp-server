@@ -3,6 +3,7 @@ package cachedb
 import (
 	"context"
 	"database/sql"
+	"log"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -39,8 +40,9 @@ func Open(path string) (*Queries, *sql.DB, error) {
 	}
 
 	q := New(db)
-	// Discard expired rows left over from previous sessions.
-	_ = q.PruneExpired(context.Background(), time.Now().Unix())
+	if err := q.PruneExpired(context.Background(), time.Now().Unix()); err != nil {
+		log.Printf("cache prune: %v", err)
+	}
 
 	return q, db, nil
 }

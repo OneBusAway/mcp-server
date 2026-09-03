@@ -33,7 +33,7 @@ type pageCursor struct {
 func newPaginationSigningKey() [32]byte {
 	var key [32]byte
 	if _, err := rand.Read(key[:]); err != nil {
-		panic("could not create pagination signing key")
+		panic(fmt.Sprintf("could not create pagination signing key: %v", err))
 	}
 	return key
 }

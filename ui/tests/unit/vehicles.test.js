@@ -2,11 +2,12 @@ import { describe, expect, it } from 'vitest';
 import {
 	deduplicateVehicles,
 	hasVehiclePosition,
-	mergeTrackedVehicleUpdates,
 	replaceRefreshedVehicles,
 	vehicleFromArrival,
 	vehicleFromTripDetails,
 	vehicleKey,
+	vehicleMatchesRoute,
+	vehicleRequiresRouteGeometry,
 } from '../../src/lib/vehicles.js';
 
 describe('vehicle identity', () => {
@@ -127,26 +128,11 @@ describe('vehicle identity', () => {
 		});
 	});
 
-	it('updates only tracked trips without replacing the existing fleet', () => {
-		const vehicles = mergeTrackedVehicleUpdates(
-			[
-				{ trip_id: 'tracked-trip', route_id: 'route-a', lat: 10, lon: 20 },
-				{ trip_id: 'other-trip', route_id: 'route-b', lat: 30, lon: 40 },
-			],
-			[
-				{ trip_id: 'tracked-trip', route_id: 'route-a', lat: 11, lon: 21 },
-				{ trip_id: 'past-trip', route_id: 'route-c', lat: 50, lon: 60 },
-			],
-			new Set(['tracked-trip']),
-		);
-
-		expect(vehicles).toHaveLength(2);
-		expect(vehicles.find((vehicle) => vehicle.trip_id === 'tracked-trip')).toMatchObject({
-			lat: 11,
-			lon: 21,
-		});
-		expect(vehicles.find((vehicle) => vehicle.trip_id === 'other-trip')).toBeDefined();
-		expect(vehicles.find((vehicle) => vehicle.trip_id === 'past-trip')).toBeUndefined();
+	it('requires full active-route geometry instead of matching route numbers', () => {
+		const vehicle = { active_route_id: 'agency-a_45', route_short_name: '45' };
+		expect(vehicleRequiresRouteGeometry(vehicle)).toBe(true);
+		expect(vehicleMatchesRoute(vehicle, 'agency-a_45')).toBe(true);
+		expect(vehicleMatchesRoute(vehicle, 'agency-b_45')).toBe(false);
 	});
 
 	it('removes a refreshed trip when its latest response has no vehicle position', () => {

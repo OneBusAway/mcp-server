@@ -57,6 +57,17 @@ describe('arrival tracking requests', () => {
 		).toBe(true);
 	});
 
+	it('never polls trip details for a stop-arrivals map', () => {
+		expect(
+			shouldPollMapVehicles({
+				agencyId: null,
+				vehicleTripIds: ['arrival-trip'],
+				hasStopTracker: false,
+				stopId: '1_1156',
+			}),
+		).toBe(false);
+	});
+
 	it('refreshes initialized arrival panels until precise tracking takes ownership', () => {
 		expect(shouldPollArrivalsPanel({ stopId: 'test_stop', hasStopTracker: false })).toBe(true);
 		expect(shouldPollArrivalsPanel({ stopId: 'test_stop', hasStopTracker: true })).toBe(false);

@@ -8,7 +8,7 @@
 
 import { unwrap, items, normalizeArrivals } from '$lib/result.js';
 import { MAP_RENDERING_TOOLS } from '$lib/mcp/tools.js';
-import { vehicleFromArrival, vehicleFromTripDetails } from '$lib/vehicles.js';
+import { vehicleFromTripDetails } from '$lib/vehicles.js';
 import {
 	createMapState,
 	addMarkers,
@@ -184,32 +184,18 @@ async function _handleArrivalsForStop(input, d, list, controller, sse, mapState,
 
 	// Scheduled arrivals are still useful map context: show the stop and its
 	// routes even when the agency has not supplied real-time predictions.
-	const realtimeArrivals = arrivals.filter((a) => a.predicted && a.trip_id);
-	const arrivalVehicles = realtimeArrivals.map(vehicleFromArrival).filter(Boolean);
-	// Vehicle routes come first so every rendered bus has matching geometry.
-	// Previously routes were selected from the full arrival list but vehicles
-	// were selected independently, which left some buses with no usable shape.
-	const vehicleRouteIds = arrivalVehicles.map((vehicle) => vehicle.route_id).filter(Boolean);
-	const routeIds = [
-		...new Set([...vehicleRouteIds, ...arrivals.map((a) => a.route_id).filter(Boolean)]),
-	].slice(0, 6);
-	const visibleVehicleRoutes = new Set(routeIds);
-	const mappedVehicles = arrivalVehicles.filter((vehicle) =>
-		visibleVehicleRoutes.has(vehicle.route_id),
-	);
-	const realtimeTripIds = [...new Set(mappedVehicles.map((vehicle) => vehicle.trip_id))].slice(
-		0,
-		6,
-	);
+	const routeIds = [...new Set(arrivals.map((a) => a.route_id).filter(Boolean))].slice(0, 6);
 	const stopLookup = searchedStop
 		? Promise.resolve(searchedStop)
 		: mcp.callTool('get_stop', { stop_id: input.stop_id });
 	const lookupResults = await Promise.allSettled([
 		stopLookup,
 		...routeIds.map((route_id) => mcp.callTool('get_stops_for_route', { route_id })),
+		...routeIds.map((route_id) => mcp.callTool('get_trips_for_route', { route_id, limit: 50 })),
 	]);
 	const [stopRes] = lookupResults;
 	const routeResults = lookupResults.slice(1, 1 + routeIds.length);
+	const vehicleResults = lookupResults.slice(1 + routeIds.length);
 
 	let stopLat = null,
 		stopLon = null;
@@ -234,10 +220,32 @@ async function _handleArrivalsForStop(input, d, list, controller, sse, mapState,
 		const routeName = routeNames.get(routeIds[index]) ?? routeIds[index];
 		return routeDirections(routeData, routeName, routeIds[index]);
 	});
+	const mappedVehicles = vehicleResults.flatMap((vehicleRes, index) => {
+		if (vehicleRes.status !== 'fulfilled') return [];
+		const routeId = routeIds[index];
+		const routeName = routeNames.get(routeId) ?? routeId.split('_').at(-1);
+		return items(vehicleRes.value)
+			.map((vehicle) =>
+				vehicleFromTripDetails(vehicle, {
+					route_short_name: routeName,
+					headsign: vehicle.headsign,
+				}),
+			)
+			.filter(Boolean);
+	});
+	const realtimeTripIds = [...new Set(mappedVehicles.map((vehicle) => vehicle.trip_id))].slice(
+		0,
+		6,
+	);
 
 	const trip_info = {};
-	for (const a of realtimeArrivals) {
-		if (a.trip_id) trip_info[a.trip_id] = { route_short_name: a.route_name, headsign: a.headsign };
+	for (const vehicle of mappedVehicles) {
+		if (vehicle.trip_id) {
+			trip_info[vehicle.trip_id] = {
+				route_short_name: vehicle.route_short_name,
+				headsign: vehicle.headsign,
+			};
+		}
 	}
 
 	if (stopLat != null) {

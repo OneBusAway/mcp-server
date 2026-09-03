@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 	"reflect"
 	"runtime"
 	"sort"
@@ -121,24 +120,6 @@ func envelopeEntry(body string) string {
 // envelopeList wraps a JSON list body in the standard OBA success envelope.
 func envelopeList(body string) string {
 	return `{"code":200,"data":{"list":` + body + `}}`
-}
-
-// envelopeListWithReferences wraps a list body with references (agencies,
-// stops, trips) that many OBA endpoints resolve at the client. Passing an
-// empty references object keeps the DTO decoders happy without needing extra
-// stub data.
-func envelopeListWithReferences(body, references string) string {
-	return `{"code":200,"data":{"list":` + body + `,"references":` + references + `}}`
-}
-
-// jsonNonEmpty is a defensive helper: it fails the test if the given raw JSON
-// is empty or invalid. Used by tests that build the fixture response inline
-// to catch typos before they surface as decoding errors deeper in the stack.
-func jsonNonEmpty(t *testing.T, raw string) {
-	t.Helper()
-	if raw == "" || !json.Valid([]byte(raw)) {
-		t.Fatalf("fixture body is empty or not valid JSON: %q", raw)
-	}
 }
 
 // TestEveryRegisteredToolHasAFixtureContract fails when a newly registered

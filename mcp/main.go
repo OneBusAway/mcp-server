@@ -270,16 +270,3 @@ func resolveStartupConfig(args []string, lookupEnv func(string) (string, bool)) 
 	}
 	return cfg, *checkConfig, *printConfig, nil
 }
-
-// loadStartupConfig is the validated startup path used by tests and callers
-// that do not need diagnostic output for an invalid configuration.
-func loadStartupConfig(args []string, lookupEnv func(string) (string, bool)) (appconfig.Config, bool, bool, error) {
-	cfg, checkConfig, printConfig, err := resolveStartupConfig(args, lookupEnv)
-	if err != nil {
-		return appconfig.Config{}, false, false, err
-	}
-	if err := cfg.Validate(); err != nil {
-		return appconfig.Config{}, false, false, fmt.Errorf("invalid configuration: %w", err)
-	}
-	return cfg, checkConfig, printConfig, nil
-}

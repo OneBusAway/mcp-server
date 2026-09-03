@@ -100,7 +100,7 @@ make logs
 Sample output:
 ```
 10:42:30 [START] http://localhost:4000
-10:42:31 [CACHE] /home/ahmed/.cache/oba-mcp/cache.db
+10:42:31 [CACHE] /home/user/.cache/oba-mcp/cache.db
 10:42:32 [READY] transport=streamable-http  endpoint=http://127.0.0.1:8080/mcp
 10:42:35 [MISS] arrivals-and-departures-for-stop (get_arrivals_for_stop)  ms=41  4.8KB  request_id=...
 10:42:36 [L2]   route (get_route)  request_id=...

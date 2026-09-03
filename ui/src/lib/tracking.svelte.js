@@ -296,15 +296,18 @@ function createTrackingStore() {
 		if (t) {
 			trackers = trackers.filter((x) => x.id !== trackerId);
 			_stopPollVersions[t.stop_id] = (_stopPollVersions[t.stop_id] ?? 0) + 1;
-			// Stop stop-level refresh when no more trackers remain for this stop
 			if (!trackers.some((x) => x.stop_id === t.stop_id)) {
 				clearInterval(_stopIntervals[t.stop_id]);
 				delete _stopIntervals[t.stop_id];
-				const next = { ...stopArrivals };
-				delete next[t.stop_id];
-				stopArrivals = next;
 			}
 		}
+	}
+
+	// The arrivals panel publishes its complete, untracked stop feed here so the
+	// map and panel consume the same snapshot instead of polling separate sources.
+	function setStopArrivals(stopID, arrivals) {
+		if (!stopID) return;
+		stopArrivals = { ...stopArrivals, [stopID]: Array.isArray(arrivals) ? arrivals : [] };
 	}
 
 	function clear() {
@@ -319,10 +322,11 @@ function createTrackingStore() {
 		get trackers() {
 			return trackers;
 		},
-		/** Reactive map of stop_id → latest arrivals (populated when tracking is active). */
+		/** Reactive map of stop_id → the latest authoritative arrivals snapshot. */
 		get stopArrivals() {
 			return stopArrivals;
 		},
+		setStopArrivals,
 		add,
 		remove,
 		clear,

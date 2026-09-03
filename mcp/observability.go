@@ -38,6 +38,9 @@ func toolObservabilityMiddleware(appLogger *log.Logger, metrics *operationalMetr
 			result, err := next(ctx, request)
 			tools.AttachRequestID(result, requestID)
 			elapsed := time.Since(started)
+			if ctx.Err() != nil {
+				return result, err
+			}
 			outcome, errorCode, cache, responseBytes := toolCallOutcome(result, err)
 			logToolCall(appLogger, ctx, request.Params.Name, outcome, errorCode, cache, elapsed, responseBytes)
 			if metrics != nil {

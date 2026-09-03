@@ -106,7 +106,9 @@
 				minutes_after: minutesAfter,
 				limit: 50,
 			});
-			arrivals = ensureTrackedInArrivals(normalizeArrivals(items(result)));
+			const nextArrivals = ensureTrackedInArrivals(normalizeArrivals(items(result)));
+			arrivals = nextArrivals;
+			if (!hasStopTracker) tracking.setStopArrivals(stopId, nextArrivals);
 			lastAt = new Date();
 		} catch (e) {
 			error = e.message;
@@ -144,6 +146,7 @@
 		if (incoming === lastInitialArrivals) return;
 		lastInitialArrivals = incoming;
 		arrivals = [...incoming];
+		if (!hasStopTracker && stopId) tracking.setStopArrivals(stopId, incoming);
 		lastAt = incoming.length ? new Date() : null;
 	});
 
@@ -151,6 +154,9 @@
 		const existing = trackedArrival(arrival);
 		if (existing) {
 			tracking.remove(existing.id);
+			// Immediately repopulate the shared stop snapshot after untracking so
+			// the map does not retain the final precise-tracking position.
+			load();
 			return;
 		}
 

@@ -27,7 +27,11 @@ func (h *Handler) getStopOverview(ctx context.Context, req mcp.CallToolRequest) 
 		return toResult(errorResult(err.Error())), nil
 	}
 
-	loc := h.client.TimezoneFor(ctx, client.AgencyIDFromEntityID(stopID))
+	agencyID := client.AgencyIDFromEntityID(stopID)
+	if agencyID == stopID {
+		agencyID = ""
+	}
+	loc := h.client.TimezoneFor(ctx, agencyID)
 
 	params := url.Values{
 		"minutesBefore": {"0"},
