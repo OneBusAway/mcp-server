@@ -33,7 +33,8 @@
 			const idx = result.findIndex((arrival) => arrival.trip_id === tracker.trip_id);
 			if (idx !== -1) {
 				// Overlay the tracking state so the row keeps its arrival/departure
-				// status across stop-feed refreshes.
+				// status across stop-feed refreshes. tracker.arrival_ms comes from the
+				// 15s per-trip poll and is always fresher than the stop feed.
 				const existing = result[idx];
 				result[idx] = {
 					...existing,
@@ -41,6 +42,7 @@
 					predicted_arrival: tracker.predicted_arrival || existing.predicted_arrival,
 					predicted_arrival_display:
 						tracker.predicted_arrival || existing.predicted_arrival_display,
+					predicted_arrival_ms: tracker.arrival_ms || existing.predicted_arrival_ms,
 					number_of_stops_away: tracker.stops_away ?? existing.number_of_stops_away,
 					deviation_seconds: tracker.deviation_seconds ?? existing.deviation_seconds ?? 0,
 					deviation_label: tracker.deviation_label ?? existing.deviation_label ?? null,
@@ -51,6 +53,7 @@
 			// row so refreshing the panel never makes the user's tracker disappear.
 			result.push({
 				trip_id: tracker.trip_id,
+				vehicle_id: tracker.vehicle_id,
 				service_date: tracker.service_date,
 				service_date_ms: tracker.service_date,
 				route_name: tracker.route_name,
@@ -59,6 +62,7 @@
 				predicted: true,
 				predicted_arrival: tracker.predicted_arrival,
 				predicted_arrival_display: tracker.predicted_arrival,
+				predicted_arrival_ms: tracker.arrival_ms || 0,
 				scheduled_arrival: tracker.predicted_arrival,
 				scheduled_arrival_display: tracker.predicted_arrival,
 				number_of_stops_away: tracker.stops_away,

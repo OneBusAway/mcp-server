@@ -11,7 +11,7 @@ import {
 } from '../../src/lib/vehicles.js';
 
 describe('vehicle identity', () => {
-	it('uses active trip ID before vehicle ID, like WayFinder', () => {
+	it('uses vehicle ID before active trip ID', () => {
 		expect(
 			vehicleKey({
 				active_trip_id: 'active-trip',
@@ -20,7 +20,7 @@ describe('vehicle identity', () => {
 				lat: 1,
 				lon: 2,
 			}),
-		).toBe('active-trip:active-trip');
+		).toBe('vehicle:bus-7');
 	});
 
 	it('keeps valid anonymous and zero-coordinate vehicles renderable', () => {
@@ -67,7 +67,7 @@ describe('vehicle identity', () => {
 		]);
 
 		expect(vehicles).toHaveLength(1);
-		expect(vehicleKey(vehicles[0])).toBe('active-trip:current-trip');
+		expect(vehicleKey(vehicles[0])).toBe('vehicle:bus-7');
 		expect(vehicles[0].trip_id).toBe('first-arrival');
 	});
 
@@ -92,7 +92,7 @@ describe('vehicle identity', () => {
 			route_id: 'agency_30',
 			route_short_name: '30',
 		});
-		expect(vehicleKey(vehicle)).toBe('active-trip:current-trip');
+		expect(vehicleKey(vehicle)).toBe('vehicle:bus-7');
 	});
 
 	it('does not attach active-trip GPS to an unresolved arrival route', () => {

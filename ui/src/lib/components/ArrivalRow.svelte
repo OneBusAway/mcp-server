@@ -1,5 +1,15 @@
 <script>
+	import { onMount } from 'svelte';
 	import StatusDot from './StatusDot.svelte';
+	import { now, useNow } from '$lib/now.svelte.js';
+
+	onMount(() => useNow());
+
+	// Server-formatted display strings often include a "(in X min)" tail that
+	// goes stale between polls. Strip it — the ETA badge computes this live.
+	function stripRelative(text) {
+		return typeof text === 'string' ? text.replace(/\s*\(in [^)]*\)\s*$/, '').trim() : text;
+	}
 
 	/**
 	 * @typedef {{
@@ -29,16 +39,19 @@
 	} = $props();
 
 	const routeLabel = $derived(arrival.route_name ?? arrival.route_short_name ?? '');
-	const schedTime = $derived(arrival.scheduled_arrival_display ?? arrival.scheduled_arrival ?? '');
+	const schedTime = $derived(
+		stripRelative(arrival.scheduled_arrival_display ?? arrival.scheduled_arrival ?? ''),
+	);
 	const predTime = $derived(
-		arrival.predicted_arrival_display ?? arrival.predicted_arrival ?? schedTime,
+		stripRelative(arrival.predicted_arrival_display ?? arrival.predicted_arrival ?? '') ||
+			schedTime,
 	);
 	const arrivalMs = $derived(
 		(arrival.predicted ? arrival.predicted_arrival_ms : 0) || arrival.scheduled_arrival_ms || 0,
 	);
 	const eta = $derived.by(() => {
 		if (!arrivalMs) return arrival.predicted ? predTime : schedTime;
-		const minutes = Math.ceil((arrivalMs - Date.now()) / 60_000);
+		const minutes = Math.ceil((arrivalMs - now()) / 60_000);
 		if (minutes <= 0) return 'Due';
 		return `${minutes} min`;
 	});

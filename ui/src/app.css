@@ -102,29 +102,40 @@ html.dark :focus-visible {
 	}
 }
 
-.oba-current-stop-marker {
-	animation: oba-current-stop-pulse 1.8s ease-out infinite;
+.oba-current-stop-marker::before,
+.oba-current-stop-marker::after {
+	content: '';
+	position: absolute;
+	inset: -3px;
+	border-radius: 50%;
+	border: 2px solid rgba(55, 127, 186, 0.75);
+	pointer-events: none;
+	animation: oba-current-stop-radar 2.4s cubic-bezier(0.16, 0.72, 0.32, 1) infinite;
+	will-change: transform, opacity;
 }
-@keyframes oba-current-stop-pulse {
+.oba-current-stop-marker::after {
+	animation-delay: 1.2s;
+}
+@keyframes oba-current-stop-radar {
 	0% {
-		box-shadow:
-			0 0 0 3px rgba(37, 99, 235, 0.35),
-			0 2px 8px rgba(0, 0, 0, 0.45);
+		transform: scale(1);
+		opacity: 0.85;
+		border-width: 3px;
 	}
-	70% {
-		box-shadow:
-			0 0 0 11px rgba(37, 99, 235, 0),
-			0 2px 8px rgba(0, 0, 0, 0.45);
+	60% {
+		opacity: 0.4;
 	}
 	100% {
-		box-shadow:
-			0 0 0 3px rgba(37, 99, 235, 0),
-			0 2px 8px rgba(0, 0, 0, 0.45);
+		transform: scale(3.6);
+		opacity: 0;
+		border-width: 1px;
 	}
 }
 
 @media (prefers-reduced-motion: reduce) {
-	.oba-current-stop-marker {
+	.oba-current-stop-marker::before,
+	.oba-current-stop-marker::after {
 		animation: none;
+		display: none;
 	}
 }

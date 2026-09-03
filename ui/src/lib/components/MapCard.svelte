@@ -659,9 +659,22 @@
 					Number(Boolean(b.is_current || (stopId && b.id === stopId))) -
 					Number(Boolean(a.is_current || (stopId && a.id === stopId))),
 			);
+		const seenIds = new Set();
 		const validMarkers = [];
+		const isCurrentCandidate = (m) => !!m.is_current || (!!stopId && m.id === stopId);
 		for (const marker of markerCandidates) {
-			if (validMarkers.some((existing) => sameStopLocation(existing, marker))) continue;
+			if (marker.id) {
+				if (seenIds.has(marker.id)) continue;
+				seenIds.add(marker.id);
+			}
+			// Widen the kill-zone around the current-stop marker so nearby duplicates
+			// from a different source (route stops with a slightly offset location)
+			// don't stack a small green dot on top of the highlighted marker.
+			const collides = validMarkers.some((existing) => {
+				const threshold = isCurrentCandidate(existing) ? 40 : 6;
+				return sameStopLocation(existing, marker, threshold);
+			});
+			if (collides) continue;
 			validMarkers.push(marker);
 		}
 		for (const m of validMarkers) {
@@ -670,20 +683,18 @@
 			const isCurrent = !!m.is_current || (!!stopId && m.id === stopId);
 			if (isCurrent) el.className = 'oba-current-stop-marker';
 			Object.assign(el.style, {
-				width: isCurrent ? '28px' : '16px',
-				height: isCurrent ? '28px' : '16px',
-				borderRadius: isCurrent ? '8px' : '50%',
-				background: isCurrent ? '#f9faf7' : '#78aa37',
-				border: isCurrent ? '3px solid #26302a' : '3px solid white',
+				width: isCurrent ? '16px' : '16px',
+				height: isCurrent ? '16px' : '16px',
+				borderRadius: '50%',
+				background: isCurrent
+					? 'radial-gradient(circle at 35% 30%, #5aa8e0 0%, #377fba 55%, #1e5989 100%)'
+					: '#78aa37',
+				border: isCurrent ? '3px solid rgba(255,255,255,.95)' : '3px solid white',
 				boxShadow: isCurrent
-					? '0 0 0 2px rgba(255,255,255,.85), 0 2px 8px rgba(0,0,0,.45)'
+					? '0 0 0 1px rgba(30,89,137,.6), 0 3px 10px rgba(0,0,0,.55)'
 					: '0 1px 5px rgba(0,0,0,0.4)',
 				cursor: hasId ? 'pointer' : 'default',
 			});
-			if (isCurrent) {
-				el.innerHTML =
-					'<span style="display:block;width:12px;height:12px;margin:5px;border-radius:3px;background:#377fba"></span>';
-			}
 			const popup = m.name
 				? new maplibregl.Popup({ offset: 14, closeButton: false, className: 'oba-hover-popup' })
 						.setLngLat([m.lon ?? m.lng, m.lat])
