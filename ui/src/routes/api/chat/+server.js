@@ -21,7 +21,7 @@ You are onebusaway-transit-asssit with access to live OneBusAway transit data vi
 RULES — follow these exactly:
 1. ALWAYS call a tool to answer transit questions. Never guess or say "I'll check" without calling a tool first.
 2. NEVER say "there was an issue" or "I couldn't find" without actually calling the tool and getting an error back.
-3. If a tool returns an error or empty result, report exactly what it returned. Do not apologize or repeat the call.
+3. If a tool returns an error or empty result, report exactly what it returned. Do not apologize or repeat the call. Never name or describe an endpoint, protocol, implementation, or inferred cause unless the tool result explicitly includes that detail.
 4. Use stop IDs and route IDs exactly as given — do not modify them (e.g. "1_1" stays "1_1").
 5. Format times clearly: "3:42 PM (in 8 min)". Be concise.
 6. Start with the answer; never narrate actions such as "I'll check" or "I'll get the details."
@@ -42,7 +42,7 @@ CRITICAL RULES:
 - Use IDs exactly as returned by tools. "1_1" stays "1_1". "1" stays "1". Never add or remove prefixes.
 - To list stops for an agency use get_stops_for_agency with the agency_id. Do NOT use search_stops for this.
 - To list routes for an agency use get_routes_for_agency with the agency_id. Do NOT use search_routes for this.
-- If the tool returns an error, quote the error. Do not retry or apologize.
+- If the tool returns an error, quote the error exactly. Do not retry, apologize, name an endpoint, or infer a cause that is not present in the error message.
 - After getting tool results, answer directly. Do not ask follow-up questions.
 - Start with the answer; never narrate actions such as "I'll check" or "I'll get the details."
 - In normal rider answers, never use the words UI, map, card, tool, display, render, or automatic. Do not explain internal behavior or capabilities.
@@ -185,12 +185,21 @@ async function streamAnthropic({ apiKey, model, msgs, tools, controller, mcp, se
 			messages: currentMsgs,
 		});
 
-		stream.on('text', (text) => sse(controller, { t: 'text', v: text }));
+		// Models sometimes narrate before requesting a tool despite the system
+		// prompt. Buffer each round until its stop reason is known so that text
+		// accompanying a tool request never becomes visible to the rider.
+		let roundText = '';
+		stream.on('text', (text) => {
+			roundText += text;
+		});
 
 		const finalMsg = await stream.finalMessage();
 		currentMsgs = [...currentMsgs, { role: 'assistant', content: finalMsg.content }];
 
-		if (finalMsg.stop_reason === 'end_turn') break;
+		if (finalMsg.stop_reason === 'end_turn') {
+			if (roundText) sse(controller, { t: 'text', v: roundText });
+			break;
+		}
 
 		if (finalMsg.stop_reason === 'tool_use') {
 			const toolResults = [];
@@ -363,9 +372,12 @@ async function streamOpenAI({
 			);
 		}
 
-		const { assistantContent, toolCalls } = await readOpenAIStream(res, controller, adapter);
+		const { assistantContent, toolCalls } = await readOpenAIStream(res, adapter);
 
-		if (!toolCalls.length) break;
+		if (!toolCalls.length) {
+			if (assistantContent) sse(controller, { t: 'text', v: assistantContent });
+			break;
+		}
 
 		oaiMsgs = [
 			...oaiMsgs,
@@ -412,7 +424,7 @@ async function streamOpenAI({
 	flushMapState(controller, mapState, sse);
 }
 
-async function readOpenAIStream(res, controller, adapter = _DEFAULT_ADAPTER) {
+async function readOpenAIStream(res, adapter = _DEFAULT_ADAPTER) {
 	const reader = res.body.getReader();
 	const decoder = new TextDecoder();
 	let buf = '';
@@ -477,7 +489,6 @@ async function readOpenAIStream(res, controller, adapter = _DEFAULT_ADAPTER) {
 				}
 				if (text) {
 					assistantContent += text;
-					sse(controller, { t: 'text', v: text });
 				}
 			}
 

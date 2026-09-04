@@ -8,6 +8,7 @@
 
 import { unwrap, items, normalizeArrivals } from '$lib/result.js';
 import { MAP_RENDERING_TOOLS } from '$lib/mcp/tools.js';
+import { modelToolError } from '$lib/mcp/tool-error.js';
 import { vehicleFromTripDetails } from '$lib/vehicles.js';
 import {
 	createMapState,
@@ -145,12 +146,7 @@ export async function dispatchTool(name, input, controller, sse, mapState, emitt
 		}
 		// get_vehicles_for_agency is intentionally a no-op for map purposes.
 	} catch (e) {
-		result = {
-			error: e.message,
-			code: e.code,
-			retryable: e.retryable ?? false,
-			retry_after_ms: e.retryAfterMs ?? null,
-		};
+		result = modelToolError(e);
 	}
 	return result;
 }
