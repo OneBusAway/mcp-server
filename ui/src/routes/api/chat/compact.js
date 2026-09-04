@@ -115,10 +115,9 @@ function compact_get_arrival_and_departure_for_stop(input, result) {
 	const one = d ? compactArrivalRow(d) : null;
 	return {
 		payload: { stop_id: input?.stop_id ?? null, arrival: one },
-		ledgerAdds:
-			one?.route_id
-				? [{ kind: 'route', id: one.route_id, name: one.route ?? one.route_id }]
-				: [],
+		ledgerAdds: one?.route_id
+			? [{ kind: 'route', id: one.route_id, name: one.route ?? one.route_id }]
+			: [],
 	};
 }
 
@@ -141,7 +140,8 @@ function compact_get_stop_overview(input, result) {
 	const cap = truncate(arrivals, 10);
 	const stopId = input?.stop_id ?? d.stop_id ?? null;
 	const stopName = d.stop_name ?? null;
-	const stopMeta = result?.stop_meta ?? (d.lat != null && d.lon != null ? { lat: d.lat, lon: d.lon } : null);
+	const stopMeta =
+		result?.stop_meta ?? (d.lat != null && d.lon != null ? { lat: d.lat, lon: d.lon } : null);
 	return {
 		payload: {
 			stop_id: stopId,
@@ -269,10 +269,7 @@ function compact_get_trip_details(_input, result) {
 			stops_away: d.number_of_stops_away ?? null,
 			map_rendered: true,
 		},
-		ledgerAdds:
-			d.route_id
-				? [{ kind: 'route', id: d.route_id, name: d.route_id }]
-				: [],
+		ledgerAdds: d.route_id ? [{ kind: 'route', id: d.route_id, name: d.route_id }] : [],
 	};
 }
 
