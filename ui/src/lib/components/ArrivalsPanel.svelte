@@ -75,7 +75,7 @@
 
 	// This derives from both the stop feed and tracker state, so status changes
 	// update the panel immediately after each stop-level poll.
-	const displayArrivals = $derived(ensureTrackedInArrivals(arrivals));
+	const displayArrivals = $derived(dedupeArrivals(ensureTrackedInArrivals(arrivals)));
 	const hasRealtimeData = $derived(displayArrivals.some((arrival) => arrival.predicted));
 	const trackedArrivals = $derived(displayArrivals.filter((a) => !!trackedArrival(a)));
 	const nonTrackedArrivals = $derived(
@@ -95,6 +95,38 @@
 		return (
 			arrivalRouteColors.get(arrival.route_name ?? arrival.route_short_name ?? '') ?? '#78aa37'
 		);
+	}
+
+	// OBA can return the same trip_id twice at a stop (e.g. a loop route or a
+	// trip that spans a service-date boundary). Combining trip_id with the
+	// scheduled time and service date keeps the Svelte keyed each block unique.
+	function arrivalKey(arrival) {
+		const trip = arrival.trip_id ?? arrival.route_short_name ?? 'unknown';
+		const sched = arrival.scheduled_arrival_ms ?? arrival.scheduled_arrival ?? '';
+		const date = arrival.service_date_ms ?? arrival.service_date ?? '';
+		return `${trip}|${date}|${sched}`;
+	}
+
+	// OBA can emit two rows for the same arrival slot: one schedule-based
+	// placeholder (vehicle_id like "block_..._schedBasedVehicle") and one for
+	// the real vehicle. Prefer the real vehicle so the UI shows a usable ID.
+	function isSchedulePlaceholder(arrival) {
+		const v = arrival.vehicle_id ?? '';
+		return v.includes('schedBased') || v.startsWith('block_');
+	}
+
+	function dedupeArrivals(list) {
+		const byKey = new Map();
+		for (const arrival of list) {
+			const key = arrivalKey(arrival);
+			const existing = byKey.get(key);
+			if (!existing) {
+				byKey.set(key, arrival);
+			} else if (isSchedulePlaceholder(existing) && !isSchedulePlaceholder(arrival)) {
+				byKey.set(key, arrival);
+			}
+		}
+		return [...byKey.values()];
 	}
 
 	async function load() {
@@ -342,7 +374,7 @@
 						>
 					</div>
 					<div class="bg-[#f7faf2] dark:bg-oba-900/20">
-						{#each trackedArrivals as arrival (arrival.trip_id)}
+						{#each trackedArrivals as arrival (arrivalKey(arrival))}
 							<ArrivalRow
 								{arrival}
 								routeColor={arrivalColor(arrival)}
@@ -359,7 +391,7 @@
 						</div>
 					{/if}
 				{/if}
-				{#each nonTrackedArrivals as arrival (arrival.trip_id ?? arrival.route_short_name + arrival.scheduled_arrival)}
+				{#each nonTrackedArrivals as arrival (arrivalKey(arrival))}
 					<ArrivalRow
 						{arrival}
 						routeColor={arrivalColor(arrival)}
