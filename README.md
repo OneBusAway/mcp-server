@@ -4,6 +4,16 @@ Real-time transit data for LLMs, backed by the [OneBusAway](https://onebusaway.o
 
 Ask any MCP-compatible client (Claude, Claude Code, opencode, or your own) questions like *"When is the next bus at 3rd & Pine?"*, *"What routes stop at Memorial Union?"*, or *"Is the P line running on time?"* and get live answers from GTFS and GTFS-realtime feeds.
 
+## Demo
+
+**Web UI** — chat with the assistant, track buses live on a map, and get auto-refreshing arrivals.
+
+![OneBusAway Assistant web UI showing a live map with routes 30, 10, and 32, an arrivals panel for stop 1_4340, and a Route 30 arrival notification](docs/screenshots/web-ui-demo.png)
+
+**MCP client** — ask transit questions from any MCP-compatible CLI or agent.
+
+![MCP client terminal answering "What buses are coming at the AirPort Rental Car Center stop?" using oba-transit tools](docs/screenshots/mcp-client-cli-demo.png)
+
 ## What's in here
 
 Two packages. Use them together or on their own.
