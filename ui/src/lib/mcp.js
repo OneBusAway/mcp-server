@@ -17,7 +17,11 @@ function parseResponse(text) {
 		return JSON.parse(dataLines[dataLines.length - 1]);
 	}
 
-	return JSON.parse(text);
+	try {
+		return JSON.parse(text);
+	} catch {
+		throw new Error(`Unexpected non-JSON response from oba-mcp: ${text.slice(0, 120)}`);
+	}
 }
 
 /** Create an MCP client bound to one browser or server request context. */
@@ -68,7 +72,7 @@ export function createMCPClient(fetchImpl) {
 		await initPromise;
 	}
 
-	async function callTool(name, args = {}) {
+	async function callTool(name, args = {}, { retryOnStaleSession = true } = {}) {
 		await ensureInit();
 		const response = await fetchImpl(mcpProxyPath, {
 			method: 'POST',
@@ -81,6 +85,15 @@ export function createMCPClient(fetchImpl) {
 			}),
 		});
 		captureSession(response);
+
+		// A server restart or session TTL invalidates our cached session id.
+		// Upstream MCP replies "Invalid session ID" as plain text with HTTP 404,
+		// which would otherwise crash parseResponse.
+		if (response.status === 404 && retryOnStaleSession) {
+			sessionId = null;
+			initPromise = null;
+			return callTool(name, args, { retryOnStaleSession: false });
+		}
 
 		const result = parseResponse(await response.text());
 		if (result.error) throw new Error(result.error.message ?? JSON.stringify(result.error));
