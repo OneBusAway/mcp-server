@@ -275,9 +275,7 @@ async function _handleArrivalsForStop(input, d, list, controller, sse, mapState,
 	}
 	_e.stopIds.add(input.stop_id);
 
-	return stopLat != null && stopLon != null
-		? { lat: stopLat, lon: stopLon, name: stopName }
-		: null;
+	return stopLat != null && stopLon != null ? { lat: stopLat, lon: stopLon, name: stopName } : null;
 }
 
 function _handleStopOverview(input, d, controller, sse, mapState, _e) {

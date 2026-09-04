@@ -12,7 +12,6 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -252,37 +251,54 @@ func TestRetryDelayHonorsRetryAfter(t *testing.T) {
 
 func TestGetCoalescesConcurrentCacheMisses(t *testing.T) {
 	var calls atomic.Int32
-	started := make(chan struct{})
+	leaderInFlight := make(chan struct{})
 	release := make(chan struct{})
 	c := clientWithTransport(roundTripperFunc(func(*http.Request) (*http.Response, error) {
 		calls.Add(1)
-		close(started)
+		close(leaderInFlight)
 		<-release
 		return jsonResponse(http.StatusOK, `{"code":200}`), nil
 	}))
 
-	const callers = 4
-	var wg sync.WaitGroup
-	errs := make(chan error, callers)
-	for range callers {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			_, err := c.Get(context.Background(), "/api/where/stop/test_1013.json", nil)
-			errs <- err
-		}()
-	}
+	const path = "/api/where/stop/test_1013.json"
+	const numWaiters = 3
+	waitersEntered := make(chan struct{}, numWaiters)
+	c.waiterEntered = func() { waitersEntered <- struct{}{} }
+
+	leaderErr := make(chan error, 1)
+	go func() {
+		_, err := c.Get(context.Background(), path, nil)
+		leaderErr <- err
+	}()
 	select {
-	case <-started:
+	case <-leaderInFlight:
 	case <-time.After(time.Second):
 		t.Fatal("leader request did not reach upstream")
 	}
+
+	waiterErrs := make(chan error, numWaiters)
+	for range numWaiters {
+		go func() {
+			_, err := c.Get(context.Background(), path, nil)
+			waiterErrs <- err
+		}()
+	}
+	for range numWaiters {
+		select {
+		case <-waitersEntered:
+		case <-time.After(time.Second):
+			t.Fatal("waiter did not enter waitForInFlight within 1s")
+		}
+	}
+
 	close(release)
-	wg.Wait()
-	close(errs)
-	for err := range errs {
-		if err != nil {
-			t.Fatalf("coalesced request returned error: %v", err)
+
+	if err := <-leaderErr; err != nil {
+		t.Fatalf("leader returned error: %v", err)
+	}
+	for range numWaiters {
+		if err := <-waiterErrs; err != nil {
+			t.Fatalf("coalesced waiter returned error: %v", err)
 		}
 	}
 	if got := calls.Load(); got != 1 {

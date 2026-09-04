@@ -430,7 +430,7 @@
 				: lngLat;
 			if (vehicleMarkerMap.has(key)) {
 				const entry = vehicleMarkerMap.get(key);
-				const { marker, popup } = entry;
+				const { popup } = entry;
 				// Update visual in-place if tracked state changed
 				if (entry.visualKey !== visualKey) {
 					entry.el.className = `oba-vehicle-marker${isTracked ? ' is-tracked' : ''}`;

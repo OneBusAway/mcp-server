@@ -1,6 +1,7 @@
 <script>
 	import { tick } from 'svelte';
 	import { marked } from 'marked';
+	import { sanitizeHtml } from '$lib/sanitize.js';
 	import { chat } from '$lib/chat.svelte.js';
 	import { settings } from '$lib/settings.svelte.js';
 	import { callTool } from '$lib/mcp.js';
@@ -12,7 +13,11 @@
 	import MapCard from '$lib/components/MapCard.svelte';
 	import TrackOffer from '$lib/components/TrackOffer.svelte';
 
-	marked.use({ gfm: true, breaks: true });
+	marked.use({
+		gfm: true,
+		breaks: true,
+		hooks: { postprocess: sanitizeHtml },
+	});
 
 	let bottomEl;
 	let textarea;
@@ -452,7 +457,7 @@
 											? 'streaming-cursor'
 											: ''}"
 									>
-										<!-- eslint-disable-next-line svelte/no-at-html-tags -- marked() sanitizes assistant markdown; input is model-generated, not user-supplied HTML -->
+										<!-- eslint-disable-next-line svelte/no-at-html-tags -- DOMPurify sanitizes marked output via the postprocess hook -->
 										{@html marked(msg.text)}
 									</div>
 								</div>
