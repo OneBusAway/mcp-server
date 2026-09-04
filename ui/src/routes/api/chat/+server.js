@@ -3,6 +3,11 @@ import Anthropic from '@anthropic-ai/sdk';
 import { createMCPClient } from '$lib/mcp.js';
 import { settings, PROVIDERS } from '$lib/settings.svelte.js';
 import { RIDER_TOOLS, ARRIVAL_FOCUSED_TOOLS } from '$lib/mcp/tools.js';
+import {
+	filterModelAnswer,
+	PRIVATE_REASONING_CORRECTION,
+	visibleModelAnswer,
+} from '$lib/mcp/answer-policy.js';
 import { sse } from './stream.js';
 import { dispatchTool, createMapState } from './dispatch.js';
 import { flushMapState } from './map.js';
@@ -31,7 +36,9 @@ RULES — follow these exactly:
 9a. When the rider states an arrival horizon, pass it as minutes_after with minutes_before=0. Otherwise use the tool's 60-minute default.
 9b. After an arrival is selected for live tracking, refresh only that row with get_arrival_and_departure_for_stop using the stop_id, trip_id, service_date, and vehicle_id returned by get_arrivals_for_stop. Never repeat get_arrivals_for_stop or call get_trip_details for stop-specific tracking.
 10. For current vehicles on named routes, call get_trips_for_route once per route. Do not call get_vehicles_for_agency unless the user explicitly asks for the agency's entire fleet.
-11. When the user names a stop by TEXT (e.g. "E Harrison St @ Hank Ballard WB", "3rd & Main", "downtown transit center") and NOT by an ID like "1_1", call search_stops with query=<that name> first. If it returns exactly one stop, use that stop_id with get_arrivals_for_stop. If it returns multiple stops, DO NOT choose one and DO NOT call another tool: ask one short clarification question listing the matching stop names and IDs so the user can choose. Do NOT call find_stops_near_location, get_arrivals_for_location, get_stops_for_agency, or get_routes_for_agency for a named stop — the first two need coordinates you don't have, and the others return oversized lists.`;
+11. When the user names a stop by TEXT (e.g. "E Harrison St @ Hank Ballard WB", "3rd & Main", "downtown transit center") and NOT by an ID like "1_1", call search_stops with query=<that name> first. If it returns exactly one stop, use that stop_id with get_arrivals_for_stop. If it returns multiple stops, DO NOT choose one and DO NOT call another tool: ask one short clarification question listing the matching stop names and IDs so the user can choose. Do NOT call find_stops_near_location, get_arrivals_for_location, get_stops_for_agency, or get_routes_for_agency for a named stop — the first two need coordinates you don't have, and the others return oversized lists.
+12. Exception to rule 3 for empty location searches: if find_stops_near_location, get_arrivals_for_location, or get_routes_for_location returns an empty list AND you did not pass radius, retry the SAME call once with radius=1000. If the retry is also empty, report "no stops within 1000 meters." Do not retry a second time and do not retry when the caller passed radius explicitly.
+13. For "stops near <known stop_id>" or "what's around this stop", use the stop's coordinates: if the ledger already lists lat/lon for that stop_id, call find_stops_near_location(lat, lon) directly. Otherwise call get_stop(stop_id) first to obtain lat/lon, then call find_stops_near_location. Never answer "I don't have coordinates" when you can fetch them with get_stop.`;
 
 const LOCAL_SYSTEM = `You are onebusaway-transit-asssit with access to live OneBusAway transit data via tools.
 
@@ -43,6 +50,8 @@ CRITICAL RULES:
 - To list stops for an agency use get_stops_for_agency with the agency_id. Do NOT use search_stops for this.
 - To list routes for an agency use get_routes_for_agency with the agency_id. Do NOT use search_routes for this.
 - If the tool returns an error, quote the error exactly. Do not retry, apologize, name an endpoint, or infer a cause that is not present in the error message.
+- Exception for empty location searches: if find_stops_near_location, get_arrivals_for_location, or get_routes_for_location returns an empty list AND you did not pass radius, retry the SAME call once with radius=1000. If still empty, say "no stops within 1000 meters." Never retry more than once and never retry when radius was passed by you.
+- For "stops near <known stop_id>" or "what's around this stop": if the ledger shows lat/lon for that stop_id, call find_stops_near_location(lat, lon) directly. Otherwise call get_stop(stop_id) first to get lat/lon, then find_stops_near_location. Never answer "I don't have coordinates" — fetch them with get_stop.
 - After getting tool results, answer directly. Do not ask follow-up questions.
 - Start with the answer; never narrate actions such as "I'll check" or "I'll get the details."
 - In normal rider answers, never use the words UI, map, card, tool, display, render, or automatic. Do not explain internal behavior or capabilities.
@@ -172,6 +181,7 @@ async function streamAnthropic({ apiKey, model, msgs, tools, controller, mcp, se
 	let ledger = sessionLedger;
 	const mapState = createMapState();
 	const emitted = { routeIds: new Set(), stopIds: new Set(), arrivalStopIds: new Set() };
+	let reasoningRetries = 0;
 
 	for (let round = 0; round < 8; round++) {
 		const ledgerBlock = formatLedgerForSystem(ledger);
@@ -197,7 +207,17 @@ async function streamAnthropic({ apiKey, model, msgs, tools, controller, mcp, se
 		currentMsgs = [...currentMsgs, { role: 'assistant', content: finalMsg.content }];
 
 		if (finalMsg.stop_reason === 'end_turn') {
-			if (roundText) sse(controller, { t: 'text', v: roundText });
+			const answer = filterModelAnswer(roundText);
+			if (answer.rejected) {
+				console.warn('[answer-policy] rejected anthropic response:', roundText.slice(0, 400));
+				if (reasoningRetries < 1) {
+					reasoningRetries++;
+					currentMsgs = [...currentMsgs, { role: 'user', content: PRIVATE_REASONING_CORRECTION }];
+					continue;
+				}
+			}
+			const visibleText = visibleModelAnswer(answer, emitted.arrivalStopIds.size > 0);
+			if (visibleText) sse(controller, { t: 'text', v: visibleText });
 			break;
 		}
 
@@ -321,6 +341,7 @@ async function streamOpenAI({
 	let oaiMsgs = [{ role: 'system', content: baseSystem }, ...msgs];
 	const mapState = createMapState();
 	const emitted = { routeIds: new Set(), stopIds: new Set(), arrivalStopIds: new Set() };
+	let reasoningRetries = 0;
 
 	for (let round = 0; round < 8; round++) {
 		const ledgerBlock = formatLedgerForSystem(ledger);
@@ -375,7 +396,24 @@ async function streamOpenAI({
 		const { assistantContent, toolCalls } = await readOpenAIStream(res, adapter);
 
 		if (!toolCalls.length) {
-			if (assistantContent) sse(controller, { t: 'text', v: assistantContent });
+			const answer = filterModelAnswer(assistantContent);
+			if (answer.rejected) {
+				console.warn(
+					`[answer-policy] rejected ${provCfg.id} response:`,
+					assistantContent.slice(0, 400),
+				);
+				if (reasoningRetries < 1) {
+					reasoningRetries++;
+					oaiMsgs = [
+						...oaiMsgs,
+						{ role: 'assistant', content: '[previous response withheld]' },
+						{ role: 'user', content: PRIVATE_REASONING_CORRECTION },
+					];
+					continue;
+				}
+			}
+			const visibleText = visibleModelAnswer(answer, emitted.arrivalStopIds.size > 0);
+			if (visibleText) sse(controller, { t: 'text', v: visibleText });
 			break;
 		}
 

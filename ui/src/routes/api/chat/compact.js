@@ -52,9 +52,28 @@ function compactAgency(a) {
 	return { id: a?.id ?? null, name: a?.name ?? null };
 }
 
-function ledgerFromArrivals(arrivals, stopId, stopName) {
+function stopLedgerEntry(stop) {
+	if (!stop?.id) return null;
+	return {
+		kind: 'stop',
+		id: stop.id,
+		name: stop.name ?? stop.id,
+		lat: stop.lat ?? undefined,
+		lon: stop.lon ?? undefined,
+	};
+}
+
+function ledgerFromArrivals(arrivals, stopId, stopName, stopMeta) {
 	const entries = [];
-	if (stopId) entries.push({ kind: 'stop', id: stopId, name: stopName ?? stopId });
+	if (stopId) {
+		entries.push({
+			kind: 'stop',
+			id: stopId,
+			name: stopName ?? stopId,
+			lat: stopMeta?.lat ?? undefined,
+			lon: stopMeta?.lon ?? undefined,
+		});
+	}
 	const seenRoutes = new Set();
 	for (const a of arrivals) {
 		const rid = a.route_id;
@@ -78,7 +97,7 @@ function compact_get_arrivals_for_stop(input, result) {
 	const arrivals = normalizeArrivals(items(result));
 	const cap = truncate(arrivals);
 	const stopId = input?.stop_id ?? null;
-	const stopName = arrivals[0]?.stop_name ?? null;
+	const stopName = arrivals[0]?.stop_name ?? result?.stop_meta?.name ?? null;
 	return {
 		payload: {
 			stop_id: stopId,
@@ -87,7 +106,7 @@ function compact_get_arrivals_for_stop(input, result) {
 			truncated: cap.truncated,
 			map_rendered: true,
 		},
-		ledgerAdds: ledgerFromArrivals(cap.items, stopId, stopName),
+		ledgerAdds: ledgerFromArrivals(cap.items, stopId, stopName, result?.stop_meta),
 	};
 }
 
@@ -122,6 +141,7 @@ function compact_get_stop_overview(input, result) {
 	const cap = truncate(arrivals, 10);
 	const stopId = input?.stop_id ?? d.stop_id ?? null;
 	const stopName = d.stop_name ?? null;
+	const stopMeta = result?.stop_meta ?? (d.lat != null && d.lon != null ? { lat: d.lat, lon: d.lon } : null);
 	return {
 		payload: {
 			stop_id: stopId,
@@ -134,27 +154,28 @@ function compact_get_stop_overview(input, result) {
 			truncated: cap.truncated,
 			map_rendered: true,
 		},
-		ledgerAdds: ledgerFromArrivals(cap.items, stopId, stopName),
+		ledgerAdds: ledgerFromArrivals(cap.items, stopId, stopName, stopMeta),
 	};
 }
 
 function compact_get_stop(input, result) {
 	const d = unwrap(result);
 	const stop = d ? compactStop(d) : null;
+	const entry = stopLedgerEntry(d ? { ...d, id: d.id ?? input?.stop_id ?? stop?.id } : null);
 	return {
 		payload: stop,
-		ledgerAdds: stop?.id ? [{ kind: 'stop', id: stop.id, name: stop.name ?? stop.id }] : [],
+		ledgerAdds: entry ? [entry] : [],
 	};
 }
 
 function compact_search_stops(_input, result) {
-	const list = items(result).map(compactStop);
+	const rawStops = items(result);
+	const list = rawStops.map(compactStop);
 	const cap = truncate(list);
+	const rawCap = rawStops.slice(0, cap.items.length);
 	return {
 		payload: { stops: cap.items, truncated: cap.truncated },
-		ledgerAdds: cap.items
-			.filter((s) => s.id)
-			.map((s) => ({ kind: 'stop', id: s.id, name: s.name ?? s.id })),
+		ledgerAdds: rawCap.map(stopLedgerEntry).filter(Boolean),
 	};
 }
 
@@ -355,18 +376,41 @@ export function compactToolResult(name, input, fullResult) {
 	return { payload: d ?? null, ledgerAdds: [] };
 }
 
-/** Merge new entries into a ledger, keeping the newest name per identifier. */
+/**
+ * Merge new entries into a ledger, keeping the newest name per identifier.
+ * Stop entries carry optional lat/lon so future "stops near <known stop_id>"
+ * turns can skip re-fetching coordinates.
+ */
 export function mergeLedger(ledger, adds) {
 	const next = {
-		stops: { ...(ledger?.stops ?? {}) },
+		stops: normalizeStopBucket(ledger?.stops),
 		routes: { ...(ledger?.routes ?? {}) },
 		agencies: { ...(ledger?.agencies ?? {}) },
 	};
 	for (const entry of adds ?? []) {
-		const bucket = next[entry.kind + 's'];
-		if (bucket && entry.id) bucket[entry.id] = entry.name ?? entry.id;
+		if (!entry?.id) continue;
+		if (entry.kind === 'stop') {
+			const prev = next.stops[entry.id] ?? {};
+			next.stops[entry.id] = {
+				name: entry.name ?? prev.name ?? entry.id,
+				lat: entry.lat ?? prev.lat,
+				lon: entry.lon ?? prev.lon,
+			};
+		} else {
+			const bucket = next[entry.kind + 's'];
+			if (bucket) bucket[entry.id] = entry.name ?? entry.id;
+		}
 	}
 	return next;
+}
+
+// Tolerate the legacy `{id: name}` shape from older clients.
+function normalizeStopBucket(bucket) {
+	const out = {};
+	for (const [id, value] of Object.entries(bucket ?? {})) {
+		out[id] = typeof value === 'string' ? { name: value } : { ...value };
+	}
+	return out;
 }
 
 const LEDGER_LIMIT = 30;
@@ -380,10 +424,18 @@ export function formatLedgerForSystem(ledger) {
 	if (!stops.length && !routes.length && !agencies.length) return '';
 	const lines = ['Known identifiers from this session (reuse these instead of re-fetching):'];
 	if (stops.length)
-		lines.push(`- Stops: ${stops.map(([id, name]) => `${id} "${name}"`).join(', ')}`);
+		lines.push(`- Stops: ${stops.map(([id, value]) => formatStopEntry(id, value)).join(', ')}`);
 	if (routes.length)
 		lines.push(`- Routes: ${routes.map(([id, name]) => `${id} "${name}"`).join(', ')}`);
 	if (agencies.length)
 		lines.push(`- Agencies: ${agencies.map(([id, name]) => `${id} "${name}"`).join(', ')}`);
 	return lines.join('\n');
+}
+
+function formatStopEntry(id, value) {
+	if (typeof value === 'string') return `${id} "${value}"`;
+	const base = `${id} "${value.name ?? id}"`;
+	return value.lat != null && value.lon != null
+		? `${base} @(${value.lat.toFixed(5)},${value.lon.toFixed(5)})`
+		: base;
 }

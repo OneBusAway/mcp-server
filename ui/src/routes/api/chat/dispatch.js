@@ -61,7 +61,17 @@ export async function dispatchTool(name, input, controller, sse, mapState, emitt
 		const list = items(result);
 
 		if (name === 'get_arrivals_for_stop') {
-			await _handleArrivalsForStop(input, d, list, controller, sse, mapState, _e, mcp);
+			const stopMeta = await _handleArrivalsForStop(
+				input,
+				d,
+				list,
+				controller,
+				sse,
+				mapState,
+				_e,
+				mcp,
+			);
+			if (stopMeta) result = { ...result, stop_meta: stopMeta };
 		} else if (name === 'find_stops_near_location') {
 			const stops = list.length ? list : Array.isArray(d) ? d : [];
 			if (stops.length) addMarkers(mapState, markCurrentStop(toMapMarkers(stops)));
@@ -94,7 +104,8 @@ export async function dispatchTool(name, input, controller, sse, mapState, emitt
 				},
 			]);
 		} else if (name === 'get_stop_overview') {
-			_handleStopOverview(input, d, controller, sse, mapState, _e);
+			const stopMeta = _handleStopOverview(input, d, controller, sse, mapState, _e);
+			if (stopMeta) result = { ...result, stop_meta: stopMeta };
 		} else if (name === 'get_stops_for_route') {
 			if (!_e.routeIds.has(input.route_id)) {
 				if (addRouteData(mapState, input.route_id, d)) _e.routeIds.add(input.route_id);
@@ -263,6 +274,10 @@ async function _handleArrivalsForStop(input, d, list, controller, sse, mapState,
 		_e.routeIds.add(routeId);
 	}
 	_e.stopIds.add(input.stop_id);
+
+	return stopLat != null && stopLon != null
+		? { lat: stopLat, lon: stopLon, name: stopName }
+		: null;
 }
 
 function _handleStopOverview(input, d, controller, sse, mapState, _e) {
@@ -280,4 +295,6 @@ function _handleStopOverview(input, d, controller, sse, mapState, _e) {
 		});
 		_e.arrivalStopIds.add(input.stop_id);
 	}
+
+	return d?.lat != null && d?.lon != null ? { lat: d.lat, lon: d.lon, name: stopName } : null;
 }
