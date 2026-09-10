@@ -84,7 +84,7 @@ A note on transport: `OBA_TRANSPORT` picks how the server accepts calls (`stdio`
 | `OBA_BASE_URL` | `http://localhost:4000` | OBA-compatible API URL |
 | `OBA_API_KEY` | required | OBA API key. Inject from a secret manager in production |
 | `OBA_TRANSPORT` | `stdio` | `stdio` or `streamable-http` (legacy `http` alias accepted) |
-| `OBA_TOOL_PROFILE` | `all` | `all` = all 29 tools, `rider` = 16 passenger-facing tools |
+| `OBA_TOOL_PROFILE` | `all` | `all` = all 29 tools, `rider` = 17 passenger-facing tools |
 | `OBA_PORT` | `8080` | HTTP listener port |
 | `OBA_HTTP_BIND_ADDR` | `127.0.0.1` | HTTP listener address. Use a private network address for a gateway deployment |
 | `OBA_HTTP_AUTH_TOKEN` | required in HTTP mode | Shared secret between the server and its authentication gateway |
@@ -208,7 +208,7 @@ Keep `OBA_HTTP_AUTH_TOKEN` and `OBA_API_KEY` in the deployment secret manager. N
 
 ## Tools
 
-The default `all` profile exposes the full 29-tool catalog below. Set `OBA_TOOL_PROFILE=rider` to expose only the 16 passenger-facing tools.
+The default `all` profile exposes the full 29-tool catalog below. Set `OBA_TOOL_PROFILE=rider` to expose only the 17 passenger-facing tools.
 
 ### Agencies
 

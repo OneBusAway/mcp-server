@@ -85,7 +85,7 @@ or secret-manager injection for production credentials. `config.schema.json`,
 | `OBA_BASE_URL` | `http://localhost:4000` | OBA-compatible API URL |
 | `OBA_API_KEY` | required | API key; inject from a secret manager |
 | `OBA_TRANSPORT` | `stdio` | `stdio` or `streamable-http`; `http` is a compatibility alias |
-| `OBA_TOOL_PROFILE` | `all` | `all` exposes all 29 tools; `rider` exposes 16 passenger workflows |
+| `OBA_TOOL_PROFILE` | `all` | `all` exposes all 29 tools; `rider` exposes 17 passenger workflows |
 | `OBA_PORT` | `8080` | HTTP listener port |
 | `OBA_HTTP_BIND_ADDR` | `127.0.0.1` | HTTP listener address |
 | `OBA_HTTP_AUTH_TOKEN` | required in HTTP mode | private gateway-to-MCP bearer token |

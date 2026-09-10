@@ -7,7 +7,7 @@
  */
 
 import { unwrap, items, normalizeArrivals } from '$lib/result.js';
-import { MAP_RENDERING_TOOLS } from '$lib/mcp/tools.js';
+import { MAP_RENDERING_TOOLS, MULTIPLE_STOP_SEARCH_INSTRUCTION } from '$lib/mcp/tools.js';
 import { modelToolError } from '$lib/mcp/tool-error.js';
 import { vehicleFromTripDetails } from '$lib/vehicles.js';
 import {
@@ -42,9 +42,8 @@ export async function dispatchTool(name, input, controller, sse, mapState, emitt
 	if (name === 'get_arrivals_for_stop' && mapState.requiresStopChoice) {
 		return {
 			data: null,
-			clarification_required: true,
-			message:
-				'Multiple stops matched the search. Ask the user to choose a stop ID before requesting arrivals.',
+			specific_stop_selection_required: true,
+			model_instruction: MULTIPLE_STOP_SEARCH_INSTRUCTION,
 		};
 	}
 	// Map geometry is accumulated across tool calls and emitted once at the end
@@ -87,9 +86,8 @@ export async function dispatchTool(name, input, controller, sse, mapState, emitt
 				mapState.requiresStopChoice = true;
 				result = {
 					...result,
-					clarification_required: true,
-					model_instruction:
-						'Do not call another tool or choose the first result. Ask the user which listed stop ID they mean.',
+					specific_stop_selection_required: true,
+					model_instruction: MULTIPLE_STOP_SEARCH_INSTRUCTION,
 				};
 			}
 		} else if (name === 'get_stop' && d?.lat) {

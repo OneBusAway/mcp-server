@@ -359,7 +359,7 @@ export function compactToolResult(name, input, fullResult) {
 	if (fullResult && typeof fullResult === 'object' && 'error' in fullResult) {
 		return { payload: fullResult, ledgerAdds: [] };
 	}
-	if (fullResult && typeof fullResult === 'object' && fullResult.clarification_required) {
+	if (fullResult && typeof fullResult === 'object' && fullResult.model_instruction) {
 		return { payload: fullResult, ledgerAdds: [] };
 	}
 	const compactor = COMPACTORS[name];

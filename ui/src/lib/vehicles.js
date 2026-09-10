@@ -28,7 +28,11 @@ export function vehicleMatchesRoute(vehicle, routeId) {
 }
 
 export function vehicleRequiresRouteGeometry(vehicle) {
-	return !!cleanId(vehicle?.active_route_id ?? vehicle?.route_id);
+	return !!(
+		cleanId(vehicle?.active_route_id) ??
+		cleanId(vehicle?.route_id) ??
+		cleanId(vehicle?.route_short_name)
+	);
 }
 
 export function vehicleFromArrival(arrival) {
