@@ -140,6 +140,13 @@ describe('vehicle identity', () => {
 		expect(vehicleRequiresRouteGeometry({})).toBe(false);
 	});
 
+	it('falls through blank higher-priority IDs to reach a valid route_short_name', () => {
+		expect(
+			vehicleRequiresRouteGeometry({ active_route_id: '', route_id: '', route_short_name: '5' }),
+		).toBe(true);
+		expect(vehicleRequiresRouteGeometry({ active_route_id: '', route_id: '' })).toBe(false);
+	});
+
 	it('removes a refreshed trip when its latest response has no vehicle position', () => {
 		const vehicles = replaceRefreshedVehicles(
 			[

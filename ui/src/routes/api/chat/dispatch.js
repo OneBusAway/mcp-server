@@ -42,9 +42,8 @@ export async function dispatchTool(name, input, controller, sse, mapState, emitt
 	if (name === 'get_arrivals_for_stop' && mapState.requiresStopChoice) {
 		return {
 			data: null,
-			clarification_required: true,
-			message:
-				'Multiple stops matched the search. Ask the user to choose a stop ID before requesting arrivals.',
+			specific_stop_selection_required: true,
+			model_instruction: MULTIPLE_STOP_SEARCH_INSTRUCTION,
 		};
 	}
 	// Map geometry is accumulated across tool calls and emitted once at the end
