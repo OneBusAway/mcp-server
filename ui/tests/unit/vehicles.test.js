@@ -135,6 +135,11 @@ describe('vehicle identity', () => {
 		expect(vehicleMatchesRoute(vehicle, 'agency-b_45')).toBe(false);
 	});
 
+	it('requires route geometry when only route_short_name is present', () => {
+		expect(vehicleRequiresRouteGeometry({ route_short_name: '1' })).toBe(true);
+		expect(vehicleRequiresRouteGeometry({})).toBe(false);
+	});
+
 	it('removes a refreshed trip when its latest response has no vehicle position', () => {
 		const vehicles = replaceRefreshedVehicles(
 			[

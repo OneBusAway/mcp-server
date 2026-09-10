@@ -16,8 +16,8 @@ func TestRegisterProfile(t *testing.T) {
 		server := server.NewMCPServer("test", "test")
 		RegisterProfile(server, client, ToolProfileRider)
 		tools := server.ListTools()
-		if len(tools) != 16 {
-			t.Fatalf("tool count = %d, want 16", len(tools))
+		if len(tools) != 17 {
+			t.Fatalf("tool count = %d, want 17", len(tools))
 		}
 		if _, ok := tools["get_shape"]; ok {
 			t.Fatal("rider profile includes get_shape")
@@ -30,6 +30,9 @@ func TestRegisterProfile(t *testing.T) {
 		}
 		if _, ok := tools["get_trip_details"]; !ok {
 			t.Fatal("rider profile is missing live vehicle data")
+		}
+		if _, ok := tools["get_trips_for_location"]; !ok {
+			t.Fatal("rider profile is missing location-based live trips")
 		}
 	})
 

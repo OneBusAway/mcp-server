@@ -1,7 +1,7 @@
 /**
  * Centralized MCP tool name registry.
  *
- * The MCP server may be configured with OBA_TOOL_PROFILE=rider (16 tools) or
+ * The MCP server may be configured with OBA_TOOL_PROFILE=rider (17 tools) or
  * OBA_TOOL_PROFILE=all (29 tools). RIDER_TOOLS is the UI's filter applied to
  * whatever listTools() returns; if the server exposes fewer tools the
  * intersection is used automatically — no validation failure.
@@ -28,6 +28,7 @@ export const RIDER_TOOLS = new Set([
 	'get_trip_details',
 	'get_trip_for_vehicle',
 	'get_trips_for_route',
+	'get_trips_for_location',
 	'get_vehicles_for_agency',
 	'get_current_time',
 ]);
@@ -51,3 +52,6 @@ export const ARRIVAL_FOCUSED_TOOLS = new Set([
 	'get_arrivals_for_stop',
 	'get_arrival_and_departure_for_stop',
 ]);
+
+export const MULTIPLE_STOP_SEARCH_INSTRUCTION =
+	'For arrivals at a specific boarding stop, ask the user which listed stop ID they mean. For a vicinity request, continue with a location-based tool using a clearly relevant stop as the coordinate anchor when the results represent the same landmark; ask only if they represent different geographic places.';
