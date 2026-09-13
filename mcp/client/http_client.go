@@ -33,6 +33,13 @@ const (
 	maxAttempts        = 3
 	maxRetryAfter      = 5 * time.Second
 
+	// perAttemptTimeout bounds a single upstream HTTP round-trip. Retries and
+	// per-tool / per-turn budgets stack on top; see docs/production-roadmap.md
+	// items 4 and 5. The transport-level knobs (dial, TLS, response-header) fire
+	// earlier for the connect/header phase; this is the outer ceiling that also
+	// covers body read.
+	perAttemptTimeout = 5 * time.Second
+
 	// Circuit breaker: open after cbThreshold consecutive upstream-health
 	// failures, stay open for cbCooldown, then permit one half-open probe.
 	cbThreshold = 3
@@ -175,6 +182,23 @@ func (c *OBAClient) SetObserver(observer Observer) {
 	c.observer = observer
 }
 
+// newDefaultTransport clones http.DefaultTransport so proxy, DNS, and TLS
+// defaults are preserved, then overrides the phase-level timeouts and idle-pool
+// sizes. The bare http.Client{Timeout: ...} form this replaces (a) capped
+// MaxIdleConnsPerHost at 2, throttling fan-out to the single OBA host, and
+// (b) conflated the connect / header / body-read phases into one 15s budget.
+func newDefaultTransport() *http.Transport {
+	base := http.DefaultTransport.(*http.Transport).Clone()
+	base.DialContext = (&net.Dialer{Timeout: 3 * time.Second, KeepAlive: 30 * time.Second}).DialContext
+	base.TLSHandshakeTimeout = 3 * time.Second
+	base.ResponseHeaderTimeout = 5 * time.Second
+	base.ExpectContinueTimeout = 1 * time.Second
+	base.MaxIdleConns = 100
+	base.MaxIdleConnsPerHost = 20
+	base.IdleConnTimeout = 90 * time.Second
+	return base
+}
+
 // New creates an OBAClient targeting baseURL and authenticating with apiKey.
 // db is optional: pass a *cachedb.Queries to enable cross-session SQLite caching,
 // or nil for in-memory only.
@@ -182,7 +206,7 @@ func New(baseURL, apiKey string, logger *log.Logger, db *cachedb.Queries) *OBACl
 	return &OBAClient{
 		baseURL:     strings.TrimRight(baseURL, "/"),
 		apiKey:      apiKey,
-		httpClient:  &http.Client{Timeout: 15 * time.Second},
+		httpClient:  &http.Client{Transport: newDefaultTransport()},
 		logger:      logger,
 		db:          db,
 		clock:       time.Now,
@@ -426,21 +450,29 @@ func (c *OBAClient) requestURL(path string, query url.Values) (string, error) {
 }
 
 func (c *OBAClient) doRequest(ctx context.Context, requestURL string) (json.RawMessage, *UpstreamError) {
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
+	attemptCtx, cancel := context.WithTimeout(ctx, perAttemptTimeout)
+	defer cancel()
+	request, err := http.NewRequestWithContext(attemptCtx, http.MethodGet, requestURL, nil)
 	if err != nil {
 		return nil, upstreamError(ErrorBadResponse, false, err)
 	}
 	response, err := c.httpClient.Do(request)
 	if err != nil {
-		if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
+		// Caller cancellation dominates: never retry work the caller no longer wants.
+		if errors.Is(ctx.Err(), context.Canceled) {
 			return nil, upstreamError(ErrorCancelled, false, err)
 		}
-		if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		// Parent-context deadline (item 4's per-tool / per-turn budget): retryable
+		// in principle, but the caller's next attempt will trip the same budget,
+		// so retry logic upstream typically won't fire again.
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			return nil, upstreamError(ErrorTimeout, true, err)
 		}
-		var networkErr net.Error
-		if errors.As(err, &networkErr) {
-			return nil, upstreamError(ErrorUnavailable, true, err)
+		// Our per-attempt deadline fired during the header/connect phase, or the
+		// transport-level ResponseHeaderTimeout / dial timeout fired. Retry: the
+		// upstream never got as far as returning bytes.
+		if errors.Is(err, context.DeadlineExceeded) || isNetTimeout(err) {
+			return nil, upstreamError(ErrorTimeout, true, err)
 		}
 		return nil, upstreamError(ErrorUnavailable, true, err)
 	}
@@ -450,15 +482,15 @@ func (c *OBAClient) doRequest(ctx context.Context, requestURL string) (json.RawM
 	}
 	body, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes+1))
 	if err != nil {
-		// Mid-body errors caused by ctx cancellation or Client.Timeout must
-		// be reported as cancellation/timeout so callers retry (timeout) or
-		// bail (cancel) appropriately. Otherwise a slow-body upstream would
-		// masquerade as a hard UPSTREAM_BAD_RESPONSE and never retry.
-		if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
+		if errors.Is(ctx.Err(), context.Canceled) {
 			return nil, upstreamError(ErrorCancelled, false, err)
 		}
-		if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return nil, upstreamError(ErrorTimeout, true, err)
+		// Body-read timeout: headers arrived but the upstream stalled mid-stream.
+		// Classified as ErrorTimeout but NOT retryable: an upstream that flushed
+		// headers and can't complete the body is struggling, not transiently
+		// unavailable. Retrying wastes the tool/turn budget on a hot host.
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(attemptCtx.Err(), context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) || isNetTimeout(err) {
+			return nil, upstreamError(ErrorTimeout, false, err)
 		}
 		return nil, upstreamError(ErrorBadResponse, false, err)
 	}
@@ -469,6 +501,11 @@ func (c *OBAClient) doRequest(ctx context.Context, requestURL string) (json.RawM
 		return nil, upstreamError(ErrorBadResponse, false, nil)
 	}
 	return cloneRawMessage(body), nil
+}
+
+func isNetTimeout(err error) bool {
+	var netErr net.Error
+	return errors.As(err, &netErr) && netErr.Timeout()
 }
 
 func statusError(status int, retryAfterHeader string) *UpstreamError {
