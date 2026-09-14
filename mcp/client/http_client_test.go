@@ -117,12 +117,16 @@ func TestGetClassifiesRealHTTPClientTimeout(t *testing.T) {
 }
 
 // TestGetClassifiesTimeoutMidBody covers the case where the server flushes
-// headers and a partial body, then blocks past Client.Timeout. The body-read
-// error path must classify this as UPSTREAM_TIMEOUT (retryable), not
-// UPSTREAM_BAD_RESPONSE, so callers retry a slow upstream rather than
-// treating it as a permanent failure.
+// headers and a partial body, then blocks past the attempt deadline. The
+// body-read error path must classify this as UPSTREAM_TIMEOUT (non-retryable):
+// an upstream that flushed headers but stalls mid-stream is struggling, not
+// transiently unavailable, and blindly retrying wastes the tool/turn budget.
+// Connect / header-phase timeouts remain retryable (see
+// TestGetClassifiesUpstreamTimeout).
 func TestGetClassifiesTimeoutMidBody(t *testing.T) {
+	var calls atomic.Int32
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		if flusher, ok := w.(http.Flusher); ok {
@@ -141,6 +145,91 @@ func TestGetClassifiesTimeoutMidBody(t *testing.T) {
 
 	_, err := c.Get(context.Background(), "/api/where/current-time.json", nil)
 	assertUpstreamCode(t, err, ErrorTimeout)
+	assertNotRetryable(t, err)
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("upstream calls = %d, want 1 for non-retryable body-read timeout", got)
+	}
+}
+
+// TestGetClassifiesConnectTimeoutIsRetryable pins the counterpart to the
+// mid-body test: when Client.Timeout fires before headers arrive, the request
+// never got as far as returning bytes, so retrying is worthwhile. Confirms
+// that only body-read timeouts (not connect/header) are non-retryable.
+func TestGetClassifiesConnectTimeoutIsRetryable(t *testing.T) {
+	var calls atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		<-r.Context().Done()
+	}))
+	t.Cleanup(upstream.Close)
+
+	c := New(upstream.URL, "secret-api-key", nil, nil)
+	c.httpClient = &http.Client{Timeout: 100 * time.Millisecond}
+
+	_, err := c.Get(context.Background(), "/api/where/current-time.json", nil)
+	assertUpstreamCode(t, err, ErrorTimeout)
+	assertRetryable(t, err, true)
+	if got := calls.Load(); got != int32(maxAttempts) {
+		t.Fatalf("upstream calls = %d, want %d for retryable header-phase timeout", got, maxAttempts)
+	}
+}
+
+// TestDoRequestAppliesPerAttemptDeadline verifies each outgoing HTTP request
+// carries a bounded per-attempt deadline (item 5's per-attempt budget). This
+// prevents any single upstream call from running indefinitely even if
+// Client.Timeout is not set and no caller-side deadline exists.
+func TestDoRequestAppliesPerAttemptDeadline(t *testing.T) {
+	var seenDeadline time.Time
+	c := clientWithTransport(roundTripperFunc(func(request *http.Request) (*http.Response, error) {
+		if dl, ok := request.Context().Deadline(); ok {
+			seenDeadline = dl
+		}
+		return jsonResponse(http.StatusOK, `{"code":200}`), nil
+	}))
+
+	before := time.Now()
+	if _, err := c.Get(context.Background(), "/api/where/current-time.json", nil); err != nil {
+		t.Fatalf("Get returned error: %v", err)
+	}
+	if seenDeadline.IsZero() {
+		t.Fatal("outgoing request had no deadline; per-attempt timeout not applied")
+	}
+	budget := seenDeadline.Sub(before)
+	if budget <= 0 || budget > perAttemptTimeout+time.Second {
+		t.Fatalf("per-attempt budget = %s, want (0, %s]", budget, perAttemptTimeout+time.Second)
+	}
+}
+
+// TestNewDefaultTransportPoolAndProxy pins the transport configuration item 5
+// tunes: idle-pool sizes above the default (2 per host) so fan-out to the
+// single OBA host isn't throttled, response-header timeout bounded, and
+// ProxyFromEnvironment preserved so HTTPS_PROXY / NO_PROXY still work.
+func TestNewDefaultTransportPoolAndProxy(t *testing.T) {
+	tr := newDefaultTransport()
+	if tr.MaxIdleConnsPerHost != 20 {
+		t.Errorf("MaxIdleConnsPerHost = %d, want 20", tr.MaxIdleConnsPerHost)
+	}
+	if tr.MaxIdleConns != 100 {
+		t.Errorf("MaxIdleConns = %d, want 100", tr.MaxIdleConns)
+	}
+	if tr.ResponseHeaderTimeout != 5*time.Second {
+		t.Errorf("ResponseHeaderTimeout = %s, want 5s", tr.ResponseHeaderTimeout)
+	}
+	if tr.TLSHandshakeTimeout != 3*time.Second {
+		t.Errorf("TLSHandshakeTimeout = %s, want 3s", tr.TLSHandshakeTimeout)
+	}
+	if tr.ExpectContinueTimeout != time.Second {
+		t.Errorf("ExpectContinueTimeout = %s, want 1s", tr.ExpectContinueTimeout)
+	}
+	if tr.IdleConnTimeout != 90*time.Second {
+		t.Errorf("IdleConnTimeout = %s, want 90s", tr.IdleConnTimeout)
+	}
+	if tr.Proxy == nil {
+		t.Error("Proxy is nil; ProxyFromEnvironment not preserved")
+	}
+	if tr.DialContext == nil {
+		t.Error("DialContext is nil; connect timeout not enforced")
+	}
 }
 
 // TestGetClassifiesMidBodyContextCancel pins the mirror case: mid-body
@@ -701,4 +790,20 @@ func assertUpstreamCode(t *testing.T, err error, want ErrorCode) {
 	if upstream.Code != want {
 		t.Fatalf("error code = %q, want %q", upstream.Code, want)
 	}
+}
+
+func assertRetryable(t *testing.T, err error, want bool) {
+	t.Helper()
+	var upstream *UpstreamError
+	if !errors.As(err, &upstream) {
+		t.Fatalf("error %v is not an UpstreamError", err)
+	}
+	if upstream.Retryable != want {
+		t.Fatalf("error retryable = %v, want %v (code=%s)", upstream.Retryable, want, upstream.Code)
+	}
+}
+
+func assertNotRetryable(t *testing.T, err error) {
+	t.Helper()
+	assertRetryable(t, err, false)
 }
