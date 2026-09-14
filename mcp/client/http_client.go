@@ -69,6 +69,7 @@ const (
 	ErrorTimeout          ErrorCode = "UPSTREAM_TIMEOUT"
 	ErrorRateLimited      ErrorCode = "UPSTREAM_RATE_LIMITED"
 	ErrorUnavailable      ErrorCode = "UPSTREAM_UNAVAILABLE"
+	ErrorNotFound         ErrorCode = "UPSTREAM_NOT_FOUND"
 	ErrorBadResponse      ErrorCode = "UPSTREAM_BAD_RESPONSE"
 	ErrorResponseTooLarge ErrorCode = "UPSTREAM_RESPONSE_TOO_LARGE"
 )
@@ -513,6 +514,11 @@ func statusError(status int, retryAfterHeader string) *UpstreamError {
 		err := upstreamError(ErrorRateLimited, true, nil)
 		err.StatusCode = status
 		err.RetryAfter = parseRetryAfter(retryAfterHeader)
+		return err
+	}
+	if status == http.StatusNotFound {
+		err := upstreamError(ErrorNotFound, false, nil)
+		err.StatusCode = status
 		return err
 	}
 	if status >= http.StatusInternalServerError {

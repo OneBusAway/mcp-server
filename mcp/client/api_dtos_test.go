@@ -43,6 +43,12 @@ func TestGetStopDecodesTypedEnvelope(t *testing.T) {
 	}
 }
 
+func TestGetStopClassifiesNotFoundEnvelope(t *testing.T) {
+	oba := testClient(t, `{"code":404,"text":"resource not found"}`, func(*http.Request) {})
+	_, err := oba.GetStop(context.Background(), "unitrans_missing")
+	assertUpstreamCode(t, err, ErrorNotFound)
+}
+
 func TestArrivalsForStopDecodesNestedTypedFields(t *testing.T) {
 	oba := testClient(t, `{"code":200,"data":{"entry":{"stopId":"unitrans_1","arrivalsAndDepartures":[{"tripId":"unitrans_trip","routeId":"unitrans_A","predicted":true,"scheduledArrivalTime":1000,"tripStatus":{"vehicleId":"unitrans_bus","position":{"lat":38.5,"lon":-121.7}}}]}}}`, func(*http.Request) {})
 	response, err := oba.ArrivalsForStop(context.Background(), "unitrans_1", nil)
