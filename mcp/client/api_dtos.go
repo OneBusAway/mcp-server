@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/url"
 	"time"
 )
@@ -362,6 +363,11 @@ func (c *OBAClient) getTyped(ctx context.Context, path string, params url.Values
 	var status envelopeStatus
 	if err := json.Unmarshal(response, &status); err != nil {
 		return fmt.Errorf("parsing response status: %w", err)
+	}
+	if status.Code != nil && *status.Code == http.StatusNotFound {
+		err := upstreamError(ErrorNotFound, false, nil)
+		err.StatusCode = http.StatusNotFound
+		return err
 	}
 	if status.Code != nil && *status.Code != 200 {
 		return fmt.Errorf("OBA error (code %d): %s", *status.Code, status.Text)

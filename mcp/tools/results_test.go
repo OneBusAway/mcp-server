@@ -38,6 +38,13 @@ func TestToResult(t *testing.T) {
 			errorCode: "UPSTREAM_TIMEOUT",
 		},
 		{
+			name:      "not found",
+			result:    errorResult("UPSTREAM_NOT_FOUND"),
+			text:      "The transit service found nothing matching the request. Check the ID, or try different search terms.",
+			isError:   true,
+			errorCode: "UPSTREAM_NOT_FOUND",
+		},
+		{
 			name:         "data with suffix",
 			result:       dataResultWithSuffix("Route:\n", RouteResponse{ID: "unitrans_A"}, "\nUse get_stop_schedule for departures."),
 			text:         "Route:\nUse get_stop_schedule for departures.",

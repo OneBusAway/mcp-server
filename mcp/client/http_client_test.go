@@ -90,6 +90,23 @@ func TestGetClassifiesNonSuccessStatusWithoutParsing(t *testing.T) {
 	}
 }
 
+func TestGetClassifiesNotFoundWithoutRetryOrCircuitFailure(t *testing.T) {
+	var calls atomic.Int32
+	c := clientWithTransport(roundTripperFunc(func(*http.Request) (*http.Response, error) {
+		calls.Add(1)
+		return jsonResponse(http.StatusNotFound, `{"code":404,"text":"resource not found"}`), nil
+	}))
+
+	for range cbThreshold + 1 {
+		_, err := c.Get(context.Background(), "/api/where/search/stop.json", nil)
+		assertUpstreamCode(t, err, ErrorNotFound)
+		assertRetryable(t, err, false)
+	}
+	if got := calls.Load(); got != int32(cbThreshold+1) {
+		t.Fatalf("upstream calls = %d, want %d: not-found must not retry or open the circuit", got, cbThreshold+1)
+	}
+}
+
 func TestGetClassifiesUpstreamTimeout(t *testing.T) {
 	c := clientWithTransport(roundTripperFunc(func(*http.Request) (*http.Response, error) {
 		return nil, context.DeadlineExceeded
