@@ -22,6 +22,9 @@ func TestRegisterProfile(t *testing.T) {
 		if _, ok := tools["get_shape"]; ok {
 			t.Fatal("rider profile includes get_shape")
 		}
+		if _, ok := tools["get_server_config"]; ok {
+			t.Fatal("rider profile includes get_server_config")
+		}
 		if _, ok := tools["get_arrivals_for_stop"]; !ok {
 			t.Fatal("rider profile is missing get_arrivals_for_stop")
 		}
@@ -39,8 +42,12 @@ func TestRegisterProfile(t *testing.T) {
 	t.Run("all", func(t *testing.T) {
 		server := server.NewMCPServer("test", "test")
 		RegisterProfile(server, client, ToolProfileAll)
-		if got := len(server.ListTools()); got != 29 {
-			t.Fatalf("tool count = %d, want 29", got)
+		tools := server.ListTools()
+		if got := len(tools); got != 30 {
+			t.Fatalf("tool count = %d, want 30", got)
+		}
+		if _, ok := tools["get_server_config"]; !ok {
+			t.Fatal("all profile is missing get_server_config")
 		}
 	})
 }

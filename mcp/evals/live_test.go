@@ -83,8 +83,8 @@ func TestRunOpenAICompatibleExecutesModelSelectedTool(t *testing.T) {
 	if len(requests) != 2 {
 		t.Fatalf("model requests = %d, want 2", len(requests))
 	}
-	if len(requests[0].Tools) != 29 {
-		t.Fatalf("advertised tools = %d, want 29", len(requests[0].Tools))
+	if len(requests[0].Tools) != 30 {
+		t.Fatalf("advertised tools = %d, want 30", len(requests[0].Tools))
 	}
 	if len(requests[1].Messages) == 0 || requests[1].Messages[len(requests[1].Messages)-1].Role != "tool" {
 		t.Fatal("second model request does not include the tool result")

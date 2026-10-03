@@ -49,6 +49,31 @@ func TestGetStopClassifiesNotFoundEnvelope(t *testing.T) {
 	assertUpstreamCode(t, err, ErrorNotFound)
 }
 
+func TestGetServerConfigDecodesJavaConfigEntry(t *testing.T) {
+	oba := testClient(t, `{"code":200,"data":{"entry":{"id":"d08be155-5150-4fc8-8650-e0410e7fd175","name":"2026091711","serviceDateFrom":"1789628400000","serviceDateTo":"1801296000000","gitProperties":{"git.build.version":"2.0.0-SNAPSHOT","git.commit.id":"4470690f8ac2b983d758d57e4c66274a861dc014","git.remote.origin.url":"https://github.com/OneBusAway/onebusaway-application-modules.git","git.build.user.email":"dev@example.com"}},"references":{}}}`, func(request *http.Request) {
+		if request.URL.Path != "/api/where/config.json" {
+			t.Fatalf("unexpected path: %s", request.URL.Path)
+		}
+	})
+	response, err := oba.GetServerConfig(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := response.Data.Entry
+	if entry.ID != "d08be155-5150-4fc8-8650-e0410e7fd175" || entry.Name != "2026091711" {
+		t.Fatalf("id/name = %q/%q", entry.ID, entry.Name)
+	}
+	if entry.ServiceDateFrom != "1789628400000" || entry.ServiceDateTo != "1801296000000" {
+		t.Fatalf("service window = %q..%q", entry.ServiceDateFrom, entry.ServiceDateTo)
+	}
+	if entry.GitProperties.BuildVersion != "2.0.0-SNAPSHOT" || entry.GitProperties.CommitID != "4470690f8ac2b983d758d57e4c66274a861dc014" {
+		t.Fatalf("git properties = %+v", entry.GitProperties)
+	}
+	if entry.GitProperties.RemoteOriginURL != "https://github.com/OneBusAway/onebusaway-application-modules.git" {
+		t.Fatalf("remote origin = %q", entry.GitProperties.RemoteOriginURL)
+	}
+}
+
 func TestArrivalsForStopDecodesNestedTypedFields(t *testing.T) {
 	oba := testClient(t, `{"code":200,"data":{"entry":{"stopId":"unitrans_1","arrivalsAndDepartures":[{"tripId":"unitrans_trip","routeId":"unitrans_A","predicted":true,"scheduledArrivalTime":1000,"tripStatus":{"vehicleId":"unitrans_bus","position":{"lat":38.5,"lon":-121.7}}}]}}}`, func(*http.Request) {})
 	response, err := oba.ArrivalsForStop(context.Background(), "unitrans_1", nil)

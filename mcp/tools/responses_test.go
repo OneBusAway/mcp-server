@@ -70,6 +70,7 @@ func TestToolResponseTypesMarshal(t *testing.T) {
 		{"shape", ShapeResponse{Points: "encoded"}},
 		{"block", BlockResponse{ID: "unitrans_block"}},
 		{"current time", CurrentTimeResponse{TimeMS: 1_767_225_600_000, TimeDisplay: "2026-01-01T00:00:00Z"}},
+		{"server config", ServerConfigResponse{ServerType: "java", BundleID: "d08be155", ServiceDateFromMS: 1_789_628_400_000}},
 		{"metadata", MetadataResponse{RealtimeFeeds: map[string]FeedFreshness{"trip_updates": {UpdatedAtMS: 1_767_225_600_000, AgeSeconds: 10, Status: "fresh"}}}},
 	}
 

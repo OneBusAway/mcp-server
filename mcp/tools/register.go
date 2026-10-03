@@ -22,6 +22,7 @@ var advancedToolNames = []string{
 	"get_metadata",
 	"get_route_ids_for_agency",
 	"get_schedule_for_route",
+	"get_server_config",
 	"get_shape",
 	"get_stop_ids_for_agency",
 	"get_stop_schedule",
