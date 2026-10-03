@@ -317,6 +317,33 @@
       "expected_outcome": "Reports a stable upstream error without inventing a time."
     },
     {
+      "id": "server-config-success",
+      "type": "success",
+      "prompt": "Which OneBusAway server is this, and what transit data bundle is deployed?",
+      "expected_tool_calls": [
+        {
+          "name": "get_server_config",
+          "arguments": {}
+        }
+      ],
+      "max_tool_calls": 1,
+      "expected_outcome": "Reports the server type and the deployed bundle's service window."
+    },
+    {
+      "id": "server-config-upstream-failure",
+      "type": "upstream_failure",
+      "prompt": "Which OneBusAway server is this, and what transit data bundle is deployed?",
+      "expected_tool_calls": [
+        {
+          "name": "get_server_config",
+          "arguments": {}
+        }
+      ],
+      "max_tool_calls": 1,
+      "expected_error_code": "UPSTREAM_UNAVAILABLE",
+      "expected_outcome": "Reports a stable upstream error without guessing the server type."
+    },
+    {
       "id": "metadata-success",
       "type": "success",
       "prompt": "What is the current transit data freshness?",

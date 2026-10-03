@@ -19,7 +19,7 @@ is complete.
 
 ## Tool profiles
 
-The current server registers 29 tools. The `rider-default` profile is the
+The current server registers 30 tools. The `rider-default` profile is the
 target default surface for conversational transit use. `advanced` tools remain
 available only when a client explicitly requests that profile. `operator-only`
 tools require an authorized operational client and must not be exposed through a
@@ -56,6 +56,7 @@ public rider profile. Profile enforcement is scheduled for Phase 4.
 | `get_vehicles_for_agency` | operator-only | Fleet-wide real-time data. |
 | `get_block` | operator-only | Internal operational block structure. |
 | `get_metadata` | operator-only | Raw backend freshness and implementation metadata. |
+| `get_server_config` | operator-only | Server implementation and deployed bundle service window. |
 
 ## Compatibility and versioning policy
 

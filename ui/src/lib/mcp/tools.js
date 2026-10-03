@@ -2,12 +2,12 @@
  * Centralized MCP tool name registry.
  *
  * The MCP server may be configured with OBA_TOOL_PROFILE=rider (17 tools) or
- * OBA_TOOL_PROFILE=all (29 tools). RIDER_TOOLS is the UI's filter applied to
+ * OBA_TOOL_PROFILE=all (30 tools). RIDER_TOOLS is the UI's filter applied to
  * whatever listTools() returns; if the server exposes fewer tools the
  * intersection is used automatically — no validation failure.
  */
 
-/** Tool names the rider UI may call. Subset of the full 29-tool MCP surface. */
+/** Tool names the rider UI may call. Subset of the full 30-tool MCP surface. */
 export const RIDER_TOOLS = new Set([
 	'get_agencies',
 	'get_agency',

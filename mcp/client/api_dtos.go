@@ -217,6 +217,18 @@ type CurrentTime struct {
 	Time         int64  `json:"time"`
 	ReadableTime string `json:"readableTime"`
 }
+type ServerConfig struct {
+	ID              string              `json:"id"`
+	Name            string              `json:"name"`
+	ServiceDateFrom string              `json:"serviceDateFrom"`
+	ServiceDateTo   string              `json:"serviceDateTo"`
+	GitProperties   ServerGitProperties `json:"gitProperties"`
+}
+type ServerGitProperties struct {
+	BuildVersion    string `json:"git.build.version"`
+	CommitID        string `json:"git.commit.id"`
+	RemoteOriginURL string `json:"git.remote.origin.url"`
+}
 type Metadata struct {
 	CacheState            CacheState           `json:"-"`
 	StaticGTFSLastUpdated *time.Time           `json:"staticGtfsLastUpdated"`
@@ -332,6 +344,9 @@ func (c *OBAClient) GetBlock(ctx context.Context, id string) (EntryResponse[Bloc
 }
 func (c *OBAClient) GetCurrentTime(ctx context.Context) (EntryResponse[CurrentTime], error) {
 	return getEntry[CurrentTime](ctx, c, "/api/where/current-time.json", nil)
+}
+func (c *OBAClient) GetServerConfig(ctx context.Context) (EntryResponse[ServerConfig], error) {
+	return getEntry[ServerConfig](ctx, c, "/api/where/config.json", nil)
 }
 func (c *OBAClient) GetMetadata(ctx context.Context) (Metadata, error) {
 	var response Metadata

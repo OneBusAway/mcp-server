@@ -13,8 +13,8 @@ func TestEveryToolPublishesAStructuredOutputSchema(t *testing.T) {
 	RegisterAll(server, client.New("http://example.invalid", "test-key", nil, nil))
 
 	tools := server.ListTools()
-	if len(tools) != 29 {
-		t.Fatalf("tool count = %d, want 29", len(tools))
+	if len(tools) != 30 {
+		t.Fatalf("tool count = %d, want 30", len(tools))
 	}
 	for name, registered := range tools {
 		schema := registered.Tool.OutputSchema

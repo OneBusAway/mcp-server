@@ -2,7 +2,11 @@ package tools
 
 import (
 	"context"
+	"strconv"
+	"strings"
 	"time"
+
+	"oba-mcp/client"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -15,6 +19,14 @@ func (h *Handler) registerSystemTools(s *server.MCPServer) {
 			mcp.WithOutputSchema[SuccessEnvelope[CurrentTimeResponse]](),
 		),
 		h.getCurrentTime,
+	)
+
+	s.AddTool(
+		mcp.NewTool("get_server_config",
+			mcp.WithDescription("Identify the OneBusAway server implementation (server_type maglev, java, or unknown) and, outside Maglev, the deployed transit data bundle and its service date range. Use to learn which tools the server supports (get_metadata is Maglev-only) or whether the deployed bundle's service window has ended or is about to."),
+			mcp.WithOutputSchema[SuccessEnvelope[ServerConfigResponse]](),
+		),
+		h.getServerConfig,
 	)
 
 	s.AddTool(
@@ -43,6 +55,44 @@ func (h *Handler) getCurrentTime(ctx context.Context, req mcp.CallToolRequest) (
 	}
 
 	return toResult(withCache(dataResult("Current server time:\n", CurrentTimeResponse{TimeMS: ms, TimeDisplay: display}), string(resp.CacheState))), nil
+}
+
+func (h *Handler) getServerConfig(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	resp, err := h.client.GetServerConfig(ctx)
+	if err != nil {
+		return toResult(errorResult(err.Error())), nil
+	}
+	config := resp.Data.Entry
+	output := ServerConfigResponse{
+		ServerType: serverType(config),
+		Version:    config.GitProperties.BuildVersion,
+		CommitID:   config.GitProperties.CommitID,
+	}
+	if output.ServerType != "maglev" {
+		output.BundleID = config.ID
+		output.BundleName = config.Name
+		output.ServiceDateFromMS = parseEpochMS(config.ServiceDateFrom)
+		output.ServiceDateToMS = parseEpochMS(config.ServiceDateTo)
+	}
+	return toResult(withCache(dataResult("Server configuration:\n", output), string(resp.CacheState))), nil
+}
+
+func serverType(config client.ServerConfig) string {
+	if config.ID == "oba-maglev" {
+		return "maglev"
+	}
+	if strings.Contains(config.GitProperties.RemoteOriginURL, "onebusaway-application-modules") {
+		return "java"
+	}
+	return "unknown"
+}
+
+func parseEpochMS(value string) int64 {
+	ms, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		return 0
+	}
+	return ms
 }
 
 func (h *Handler) getMetadata(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {

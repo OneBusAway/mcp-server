@@ -236,6 +236,7 @@ func successFixtureResponses() map[string]obafixture.Response {
 		"/api/where/stops-for-agency/test.json":                      list(`[]`),
 		"/api/where/schedule-for-stop/test_1013.json":                entry(`{"stopId":"test_1013","stopRouteSchedules":[]}`),
 		"/api/where/current-time.json":                               entry(`{"time":1770000000000,"readableTime":"2026-01-01T00:00:00Z"}`),
+		"/api/where/config.json":                                     entry(`{"id":"d08be155","name":"2026091711","serviceDateFrom":"1789628400000","serviceDateTo":"1801296000000","gitProperties":{"git.remote.origin.url":"https://github.com/OneBusAway/onebusaway-application-modules.git"}}`),
 		"/api/v2/metadata.json":                                      {Body: `{"realtimeFeeds":{}}`},
 		"/api/where/arrival-and-departure-for-stop/test_1013.json":   entry(`{"stopId":"test_1013","tripId":"test_trip","routeId":"test_10","routeShortName":"10","predicted":false,"scheduledArrivalTime":1770000000000}`),
 		"/api/where/arrivals-and-departures-for-stop/test_1013.json": entry(`{"stopId":"test_1013","arrivalsAndDepartures":[]}`),

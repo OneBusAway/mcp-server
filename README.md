@@ -37,7 +37,7 @@ The web UI is optional. It just adds a browser chat on top of the same MCP serve
 
 This repo pairs an MCP server with a chat UI, but you don't have to use both.
 
-- **Building an agent or app?** Point any MCP client at this server in HTTP mode. The 29 tools become your data layer.
+- **Building an agent or app?** Point any MCP client at this server in HTTP mode. The 30 tools become your data layer.
 - **Prefer plain REST?** Skip the MCP layer and call a OneBusAway REST server directly. Both [onebusaway-application-modules](https://github.com/OneBusAway/onebusaway-application-modules) (the original Java implementation) and [maglev](https://github.com/OneBusAway/maglev) (its next-generation Go rewrite, same REST API) work as backends.
 - **Want a browser starting point?** Fork [`ui/`](./ui/) and adapt it.
 

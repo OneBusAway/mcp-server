@@ -1,6 +1,6 @@
 # onebusaway-mcp-server
 
-A Model Context Protocol server that gives LLMs live access to transit data. One Go binary, 29 tools, powered by the [OneBusAway](https://onebusaway.org) API.
+A Model Context Protocol server that gives LLMs live access to transit data. One Go binary, 30 tools, powered by the [OneBusAway](https://onebusaway.org) API.
 
 Use it with Claude, Claude Code, opencode, or any MCP-compatible client to answer questions like *"When does the next bus arrive at my stop?"*, *"Where are the vehicles on route P right now?"*, or *"What's the schedule for stop 1_1013 on a weekday?"*.
 
@@ -84,7 +84,7 @@ A note on transport: `OBA_TRANSPORT` picks how the server accepts calls (`stdio`
 | `OBA_BASE_URL` | `http://localhost:4000` | OBA-compatible API URL |
 | `OBA_API_KEY` | required | OBA API key. Inject from a secret manager in production |
 | `OBA_TRANSPORT` | `stdio` | `stdio` or `streamable-http` (legacy `http` alias accepted) |
-| `OBA_TOOL_PROFILE` | `all` | `all` = all 29 tools, `rider` = 17 passenger-facing tools |
+| `OBA_TOOL_PROFILE` | `all` | `all` = all 30 tools, `rider` = 17 passenger-facing tools |
 | `OBA_PORT` | `8080` | HTTP listener port |
 | `OBA_HTTP_BIND_ADDR` | `127.0.0.1` | HTTP listener address. Use a private network address for a gateway deployment |
 | `OBA_HTTP_AUTH_TOKEN` | required in HTTP mode | Shared secret between the server and its authentication gateway |
@@ -208,7 +208,7 @@ Keep `OBA_HTTP_AUTH_TOKEN` and `OBA_API_KEY` in the deployment secret manager. N
 
 ## Tools
 
-The default `all` profile exposes the full 29-tool catalog below. Set `OBA_TOOL_PROFILE=rider` to expose only the 17 passenger-facing tools.
+The default `all` profile exposes the full 30-tool catalog below. Set `OBA_TOOL_PROFILE=rider` to expose only the 17 passenger-facing tools.
 
 ### Agencies
 
@@ -267,6 +267,7 @@ The default `all` profile exposes the full 29-tool catalog below. Set `OBA_TOOL_
 | --- | --- |
 | `get_shape` | Polyline lat/lon points for a route/trip |
 | `get_current_time` | Current server time |
+| `get_server_config` | Server type (Maglev or Java) and, on Java, the deployed bundle and its service date range |
 | `get_metadata` | Server version and GTFS feed freshness (Maglev only; other OBA servers return `UPSTREAM_UNSUPPORTED`) |
 
 ## Prompts

@@ -2,7 +2,9 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -102,5 +104,61 @@ func TestGetMetadataReportsUnsupportedWhenServerLacksEndpoint(t *testing.T) {
 	}
 	if envelope.Retryable {
 		t.Fatal("retryable = true, want false: the endpoint will not appear on retry")
+	}
+}
+
+const javaServerConfigEntry = `{"id":"d08be155-5150-4fc8-8650-e0410e7fd175","name":"2026091711","serviceDateFrom":"1789628400000","serviceDateTo":"1801296000000","gitProperties":{"git.build.version":"2.0.0-SNAPSHOT","git.commit.id":"4470690f8ac2b983d758d57e4c66274a861dc014","git.remote.origin.url":"https://github.com/OneBusAway/onebusaway-application-modules.git","git.build.user.email":"dev@example.com","git.build.host":"build-box"}}`
+
+func TestGetServerConfigContract(t *testing.T) {
+	handler, _ := fixtureHandler(t, map[string]string{
+		"/api/where/config.json": envelopeEntry(javaServerConfigEntry),
+	})
+
+	result := invokeHandler(t, handler.getServerConfig, map[string]any{})
+	config := dataAs[ServerConfigResponse](t, result)
+	want := ServerConfigResponse{
+		ServerType:        "java",
+		BundleID:          "d08be155-5150-4fc8-8650-e0410e7fd175",
+		BundleName:        "2026091711",
+		ServiceDateFromMS: 1_789_628_400_000,
+		ServiceDateToMS:   1_801_296_000_000,
+		Version:           "2.0.0-SNAPSHOT",
+		CommitID:          "4470690f8ac2b983d758d57e4c66274a861dc014",
+	}
+	if config != want {
+		t.Fatalf("config = %+v, want %+v", config, want)
+	}
+	encoded, err := json.Marshal(result.StructuredContent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), "dev@example.com") || strings.Contains(string(encoded), "build-box") {
+		t.Fatalf("structured content exposes build-machine details: %s", encoded)
+	}
+}
+
+func TestGetServerConfigIdentifiesMaglev(t *testing.T) {
+	handler, _ := fixtureHandler(t, map[string]string{
+		"/api/where/config.json": envelopeEntry(`{"id":"oba-maglev","name":"OneBusAway Go","serviceDateFrom":"","serviceDateTo":"","gitProperties":{"git.build.version":"v1.4.0","git.commit.id":"0123456789abcdef","git.remote.origin.url":"https://github.com/OneBusAway/maglev.git"}}`),
+	})
+
+	result := invokeHandler(t, handler.getServerConfig, map[string]any{})
+	config := dataAs[ServerConfigResponse](t, result)
+	want := ServerConfigResponse{ServerType: "maglev", Version: "v1.4.0", CommitID: "0123456789abcdef"}
+	if config != want {
+		t.Fatalf("config = %+v, want %+v", config, want)
+	}
+}
+
+func TestGetServerConfigReportsUnknownServer(t *testing.T) {
+	handler, _ := fixtureHandler(t, map[string]string{
+		"/api/where/config.json": envelopeEntry(`{"id":"bundle-7","name":"Spring 2026","gitProperties":{}}`),
+	})
+
+	result := invokeHandler(t, handler.getServerConfig, map[string]any{})
+	config := dataAs[ServerConfigResponse](t, result)
+	want := ServerConfigResponse{ServerType: "unknown", BundleID: "bundle-7", BundleName: "Spring 2026"}
+	if config != want {
+		t.Fatalf("config = %+v, want %+v", config, want)
 	}
 }

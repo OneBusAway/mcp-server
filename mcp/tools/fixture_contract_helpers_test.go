@@ -215,5 +215,6 @@ var contractCoveredTools = map[string]func(*testing.T){
 	"get_block":                          TestGetBlockContract,
 	"get_current_time":                   TestGetCurrentTimeContract,
 	"get_metadata":                       TestGetMetadataContract,
+	"get_server_config":                  TestGetServerConfigContract,
 	"get_stop_overview":                  TestGetStopOverviewContract,
 }
