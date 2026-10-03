@@ -1,8 +1,13 @@
 package tools
 
 import (
+	"context"
+	"net/http"
 	"testing"
 	"time"
+
+	"oba-mcp/client"
+	"oba-mcp/internal/obafixture"
 )
 
 func TestGetCurrentTimeContract(t *testing.T) {
@@ -69,5 +74,33 @@ func TestGetMetadataContract(t *testing.T) {
 	}
 	if metadata.RealtimeFeeds["trip_updates"].UpdatedAtMS == 0 {
 		t.Fatalf("realtime feed updated_at_ms missing; the freshness contract requires machine-readable timestamps alongside the display status")
+	}
+}
+
+func TestGetMetadataReportsUnsupportedWhenServerLacksEndpoint(t *testing.T) {
+	// The Java OneBusAway server has no /api/v2/metadata.json; Tomcat answers with an HTML 404.
+	upstream := obafixture.New(map[string]obafixture.Response{
+		"/api/v2/metadata.json": {
+			Status: http.StatusNotFound,
+			Header: http.Header{"Content-Type": {"text/html;charset=utf-8"}},
+			Body:   "<!doctype html><title>HTTP Status 404 – Not Found</title>",
+		},
+	})
+	t.Cleanup(upstream.Close)
+	handler := &Handler{client: client.New(upstream.URL, "fixture-api-key", nil, nil)}
+
+	result, err := handler.getMetadata(context.Background(), toolRequest(map[string]any{}))
+	if err != nil {
+		t.Fatalf("handler returned protocol error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("IsError = false, want a tool error")
+	}
+	envelope := result.StructuredContent.(ErrorEnvelope)
+	if envelope.Code != "UPSTREAM_UNSUPPORTED" {
+		t.Fatalf("code = %q, want UPSTREAM_UNSUPPORTED", envelope.Code)
+	}
+	if envelope.Retryable {
+		t.Fatal("retryable = true, want false: the endpoint will not appear on retry")
 	}
 }

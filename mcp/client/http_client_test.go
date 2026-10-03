@@ -107,6 +107,21 @@ func TestGetClassifiesNotFoundWithoutRetryOrCircuitFailure(t *testing.T) {
 	}
 }
 
+func TestGetMetadataClassifiesMissingEndpointAsUnsupported(t *testing.T) {
+	var calls atomic.Int32
+	c := clientWithTransport(roundTripperFunc(func(*http.Request) (*http.Response, error) {
+		calls.Add(1)
+		return jsonResponse(http.StatusNotFound, "<!doctype html><title>HTTP Status 404 – Not Found</title>"), nil
+	}))
+
+	_, err := c.GetMetadata(context.Background())
+	assertUpstreamCode(t, err, ErrorUnsupported)
+	assertRetryable(t, err, false)
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("upstream calls = %d, want 1: an unsupported endpoint must not be retried", got)
+	}
+}
+
 func TestGetClassifiesUpstreamTimeout(t *testing.T) {
 	c := clientWithTransport(roundTripperFunc(func(*http.Request) (*http.Response, error) {
 		return nil, context.DeadlineExceeded

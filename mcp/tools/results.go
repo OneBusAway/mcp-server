@@ -195,6 +195,8 @@ func classifyError(message string) (string, bool) {
 		return "UPSTREAM_UNAVAILABLE", true
 	case strings.HasPrefix(message, "UPSTREAM_NOT_FOUND"):
 		return "UPSTREAM_NOT_FOUND", false
+	case strings.HasPrefix(message, "UPSTREAM_UNSUPPORTED"):
+		return "UPSTREAM_UNSUPPORTED", false
 	case strings.HasPrefix(message, "UPSTREAM_BAD_RESPONSE"):
 		return "UPSTREAM_BAD_RESPONSE", false
 	case strings.HasPrefix(message, "UPSTREAM_RESPONSE_TOO_LARGE"):
@@ -222,6 +224,8 @@ func publicErrorMessage(code string) string {
 		return "The transit service is temporarily unavailable."
 	case "UPSTREAM_NOT_FOUND":
 		return "The transit service found nothing matching the request. Check the ID, or try different search terms."
+	case "UPSTREAM_UNSUPPORTED":
+		return "The transit service does not support this request, so this information is not available from this server."
 	case "UPSTREAM_BAD_RESPONSE", "UPSTREAM_RESPONSE_TOO_LARGE":
 		return "The transit service returned an unusable response."
 	case "OUTPUT_TOO_LARGE":

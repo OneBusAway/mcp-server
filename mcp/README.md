@@ -267,7 +267,7 @@ The default `all` profile exposes the full 29-tool catalog below. Set `OBA_TOOL_
 | --- | --- |
 | `get_shape` | Polyline lat/lon points for a route/trip |
 | `get_current_time` | Current server time |
-| `get_metadata` | Server version and GTFS feed freshness |
+| `get_metadata` | Server version and GTFS feed freshness (Maglev only; other OBA servers return `UPSTREAM_UNSUPPORTED`) |
 
 ## Prompts
 
