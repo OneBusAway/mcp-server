@@ -70,6 +70,7 @@ const (
 	ErrorRateLimited      ErrorCode = "UPSTREAM_RATE_LIMITED"
 	ErrorUnavailable      ErrorCode = "UPSTREAM_UNAVAILABLE"
 	ErrorNotFound         ErrorCode = "UPSTREAM_NOT_FOUND"
+	ErrorUnsupported      ErrorCode = "UPSTREAM_UNSUPPORTED"
 	ErrorBadResponse      ErrorCode = "UPSTREAM_BAD_RESPONSE"
 	ErrorResponseTooLarge ErrorCode = "UPSTREAM_RESPONSE_TOO_LARGE"
 )

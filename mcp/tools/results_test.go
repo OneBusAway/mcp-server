@@ -45,6 +45,13 @@ func TestToResult(t *testing.T) {
 			errorCode: "UPSTREAM_NOT_FOUND",
 		},
 		{
+			name:      "unsupported",
+			result:    errorResult("UPSTREAM_UNSUPPORTED"),
+			text:      "The transit service does not support this request, so this information is not available from this server.",
+			isError:   true,
+			errorCode: "UPSTREAM_UNSUPPORTED",
+		},
+		{
 			name:         "data with suffix",
 			result:       dataResultWithSuffix("Route:\n", RouteResponse{ID: "unitrans_A"}, "\nUse get_stop_schedule for departures."),
 			text:         "Route:\nUse get_stop_schedule for departures.",

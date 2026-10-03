@@ -4,6 +4,7 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -335,6 +336,13 @@ func (c *OBAClient) GetCurrentTime(ctx context.Context) (EntryResponse[CurrentTi
 func (c *OBAClient) GetMetadata(ctx context.Context) (Metadata, error) {
 	var response Metadata
 	err := c.getTyped(ctx, "/api/v2/metadata.json", nil, &response)
+	// The path takes no ID, so a 404 means the server lacks the Maglev-only endpoint (e.g. the Java OBA server).
+	var upstream *UpstreamError
+	if errors.As(err, &upstream) && upstream.Code == ErrorNotFound {
+		unsupported := upstreamError(ErrorUnsupported, false, err)
+		unsupported.StatusCode = upstream.StatusCode
+		return response, unsupported
+	}
 	return response, err
 }
 
