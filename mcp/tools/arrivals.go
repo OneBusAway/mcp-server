@@ -53,7 +53,7 @@ func (h *Handler) registerArrivalTools(s *server.MCPServer) {
 
 func arrivalResponse(arrival client.ArrivalAndDeparture, references []client.Trip, loc *time.Location) ArrivalResponse {
 	if loc == nil {
-		loc = time.UTC
+		loc = client.DefaultLocation()
 	}
 	result := ArrivalResponse{
 		TripID:               arrival.TripID,

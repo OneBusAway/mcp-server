@@ -685,13 +685,13 @@ func isCredentialParam(key string) bool {
 }
 
 // FormatRelativeTime formats a Unix millisecond timestamp relative to now in loc.
-// Pass nil to use UTC. Example: "3:42 PM (in 8 min)" or "3:42 PM (2 min ago)".
+// Pass nil to use DefaultLocation(). Example: "3:42 PM (in 8 min)" or "3:42 PM (2 min ago)".
 func FormatRelativeTime(ms float64, loc *time.Location) string {
 	if ms == 0 {
 		return ""
 	}
 	if loc == nil {
-		loc = time.UTC
+		loc = DefaultLocation()
 	}
 	t := time.UnixMilli(int64(ms)).In(loc)
 	diff := time.Until(t).Round(time.Minute)
@@ -707,22 +707,22 @@ func FormatRelativeTime(ms float64, loc *time.Location) string {
 
 // TimezoneFor returns the *time.Location for an agency from the OBA API.
 // The agency response is static data (60-min TTL), so this is free after the first call.
-// Falls back to UTC on any error.
+// Falls back to DefaultLocation() on any error.
 func (c *OBAClient) TimezoneFor(ctx context.Context, agencyID string) *time.Location {
 	if agencyID == "" {
-		return time.UTC
+		return DefaultLocation()
 	}
 	resp, err := c.GetAgency(ctx, agencyID)
 	if err != nil {
-		return time.UTC
+		return DefaultLocation()
 	}
 	tzName := resp.Data.Entry.Timezone
 	if tzName == "" {
-		return time.UTC
+		return DefaultLocation()
 	}
 	loc, err := time.LoadLocation(tzName)
 	if err != nil {
-		return time.UTC
+		return DefaultLocation()
 	}
 	return loc
 }
@@ -734,4 +734,11 @@ func AgencyIDFromEntityID(id string) string {
 		return before
 	}
 	return id
+}
+
+// DefaultLocation is the zone for times whose agency time zone can't be resolved (an unprefixed
+// ID, a failed agency lookup). It is the process's local zone, so a host can set TZ to the
+// region's zone; with TZ unset that is UTC, as before.
+func DefaultLocation() *time.Location {
+	return time.Local
 }

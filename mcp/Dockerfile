@@ -17,7 +17,7 @@ FROM alpine:3.20
 
 # ca-certificates: outbound HTTPS to maglev/OBA API
 # tzdata: time.LoadLocation() for agency timezones
-RUN apk add --no-cache ca-certificates tzdata
+RUN apk upgrade --no-cache && apk add --no-cache ca-certificates tzdata
 
 WORKDIR /app
 COPY --from=builder /app/oba-mcp .
