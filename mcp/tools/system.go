@@ -51,7 +51,7 @@ func (h *Handler) getCurrentTime(ctx context.Context, req mcp.CallToolRequest) (
 	ms := entry.Time
 	display := entry.ReadableTime
 	if display == "" && ms > 0 {
-		display = time.UnixMilli(int64(ms)).UTC().Format(time.RFC3339)
+		display = time.UnixMilli(int64(ms)).In(client.DefaultLocation()).Format(time.RFC3339)
 	}
 
 	return toResult(withCache(dataResult("Current server time:\n", CurrentTimeResponse{TimeMS: ms, TimeDisplay: display}), string(resp.CacheState))), nil

@@ -249,7 +249,7 @@ func (h *Handler) getStopSchedule(ctx context.Context, req mcp.CallToolRequest) 
 
 func stopScheduleResponse(stopID string, entry client.ScheduleForStop, loc *time.Location) StopScheduleResponse {
 	if loc == nil {
-		loc = time.UTC
+		loc = client.DefaultLocation()
 	}
 	dateMs := entry.Date
 	dateStr := ""
